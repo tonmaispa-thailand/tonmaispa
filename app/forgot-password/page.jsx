@@ -12,8 +12,13 @@ export default function ForgotPasswordPage() {
   const handleSubmit = async (e) => {
     e.preventDefault()
     setLoading(true)
+    // Route the recovery link through /auth/callback, which exchanges the PKCE
+    // ?code for a real session (server-side, sets the auth cookie) and then
+    // redirects to /reset-password. Pointing straight at /reset-password left
+    // the ?code unexchanged, so the reset page never got a session and showed
+    // "link expired". `next` tells the callback where to land after exchange.
     await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/reset-password`,
+      redirectTo: `${window.location.origin}/auth/callback?next=/reset-password`,
     })
     setSent(true)
     setLoading(false)

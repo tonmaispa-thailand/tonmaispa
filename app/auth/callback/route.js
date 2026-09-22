@@ -12,5 +12,12 @@ export async function GET(req) {
     await supabase.auth.exchangeCodeForSession(code)
   }
 
-  return NextResponse.redirect(`${origin}/dashboard`)
+  // Optional post-exchange destination (e.g. password recovery → /reset-password).
+  // Only same-origin RELATIVE paths are honored: must start with "/" followed by
+  // a normal char — rejects absolute URLs, protocol-relative "//host", and the
+  // "/\host" backslash trick some browsers treat as "//". Prevents open redirect.
+  const nextParam = searchParams.get('next')
+  const next = nextParam && /^\/[^/\\]/.test(nextParam) ? nextParam : '/dashboard'
+
+  return NextResponse.redirect(`${origin}${next}`)
 }
