@@ -2,6 +2,7 @@ import { cookies } from 'next/headers'
 import { createServerComponentClient } from '@supabase/auth-helpers-nextjs'
 import { createSupabaseAdminClient } from '@/lib/supabase-admin'
 import SettingsClient from './SettingsClient'
+import AiProviderClient from './AiProviderClient'
 
 export const dynamic = 'force-dynamic'
 
@@ -41,6 +42,7 @@ export default async function SettingsPage() {
     <div>
       <h1 style={{ font: '400 32px Cormorant Garamond,serif', color: '#1C1917', margin: '0 0 24px' }}>Settings</h1>
       <SettingsClient initialSettings={settings} role={role} />
+      <AiProviderClient />
     </div>
   )
 }

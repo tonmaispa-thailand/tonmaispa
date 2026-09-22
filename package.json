@@ -9,6 +9,7 @@
     "lint": "next lint",
     "test:booking": "node --import ./scripts/register-alias.mjs scripts/test-booking-engine.mjs",
     "test:invites": "node --import ./scripts/register-alias.mjs scripts/test-invites.mjs",
+    "test:ai": "node --import ./scripts/register-alias.mjs scripts/test-ai-credentials.mjs",
     "test:chatbot": "node scripts/test-chatbot.mjs",
     "test:hallucination": "node scripts/test-hallucination.mjs",
     "blog:image": "node --env-file=.env.local scripts/gen-blog-image.mjs"

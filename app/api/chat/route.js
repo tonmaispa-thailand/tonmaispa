@@ -5,7 +5,7 @@
 // ============================================================
 
 import { createSupabaseAdminClient } from '@/lib/supabase-admin'
-import { getMiniMax, MINIMAX_MODEL }  from '@/lib/minimax'
+import { getAiClient }  from '@/lib/minimax'
 import { checkRateLimit }             from '@/lib/ratelimit'
 import { buildSystemPrompt, TOOLS_SIMPLE, TOOLS_FULL } from '@/lib/chatbot'
 import { sendEmail, enquiryOwnerHtml } from '@/lib/brevo'
@@ -87,10 +87,11 @@ export async function POST(req) {
   const tools = chatbotFullMode ? TOOLS_FULL : TOOLS_SIMPLE
 
   // ── 4. Call MiniMax with streaming ─────────────────────────
-  const client = getMiniMax()
-  if (!client) {
+  const ai = await getAiClient()
+  if (!ai) {
     return Response.json({ error: 'AI service unavailable' }, { status: 503 })
   }
+  const { client, model: aiModel } = ai
 
   // Bound both message count and total characters. A few long answers can be
   // more expensive than dozens of short turns, so count-only trimming is not
@@ -294,7 +295,7 @@ export async function POST(req) {
           const roundAbort = new AbortController()
           const roundTimer = setTimeout(() => roundAbort.abort(), ROUND_TIMEOUT_MS)
           const stream = await client.messages.create({
-            model:       MINIMAX_MODEL,
+            model:       aiModel,
             max_tokens:  700,
             temperature: 0.6,
             system:      systemPrompt,
