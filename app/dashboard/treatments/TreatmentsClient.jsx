@@ -1,9 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Image from 'next/image'
 import { TREATMENT_CATEGORIES } from '@/lib/display'
 import { resizeImageForUpload } from '@/lib/resize-image'
+import { rankBookingTopN, bookingSlotReason, BOOKING_TOP_N } from '@/lib/booking-ranking'
 
 const CATEGORIES = Object.keys(TREATMENT_CATEGORIES)
 const EMPTY_FORM = { name: '', category: 'massage', description: '', badge: '', durationsCsv: '60,90', pricesCsv: '600,850', is_active: true, photos: [], sort_order: 0, show_on_homepage: false, is_featured: false }
@@ -24,6 +25,16 @@ export default function TreatmentsClient({ initialTreatments }) {
   const [featuredFilter, setFeaturedFilter] = useState('all')
   const [search, setSearch] = useState('')
   const [sortBy, setSortBy] = useState('order') // 'order' | 'name'
+  const [popularIds, setPopularIds] = useState([]) // auto best-sellers, for the live preview
+
+  // The booking widget fetches this same list client-side; mirror it so the
+  // preview below shows the real best-seller fill, not just the featured ones.
+  useEffect(() => {
+    fetch('/api/bookings/popular-treatments')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => setPopularIds(d?.treatment_ids ?? []))
+      .catch(() => {})
+  }, [])
 
   const filtered = treatments
     .filter(t => categoryFilter === 'all' || t.category === categoryFilter)
@@ -32,6 +43,19 @@ export default function TreatmentsClient({ initialTreatments }) {
     .filter(t => featuredFilter === 'all' || (featuredFilter === 'yes' ? t.is_featured : !t.is_featured))
     .filter(t => !search.trim() || t.name.toLowerCase().includes(search.trim().toLowerCase()))
     .sort((a, b) => sortBy === 'name' ? a.name.localeCompare(b.name) : (a.sort_order ?? 0) - (b.sort_order ?? 0))
+
+  // Featured cap + live preview of the real booking shortlist.
+  const featuredCount = treatments.filter(t => t.is_featured).length
+  const featuredFull  = featuredCount >= BOOKING_TOP_N
+  // Feed the ranking the SAME order guests get. BookingEngine's query does
+  // .order('sort_order'); this page's getData() orders by category THEN
+  // sort_order for the admin list, so sort a copy by sort_order alone here —
+  // otherwise the featured/fill order (and the Top 5 itself) drifts from the
+  // real widget, which is exactly what this preview is meant to mirror.
+  const topN = rankBookingTopN({
+    treatments: [...treatments].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)),
+    popularIds,
+  })
 
   const parseDurationsAndPrices = (durationsCsv, pricesCsv) => {
     const durations = durationsCsv.split(',').map(s => parseInt(s.trim(), 10)).filter(Boolean)
@@ -49,11 +73,13 @@ export default function TreatmentsClient({ initialTreatments }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...newForm, duration_options, prices }),
     })
+    const data = await res.json().catch(() => ({}))
     if (res.ok) {
-      const { treatment } = await res.json()
-      setTreatments(prev => [...prev, treatment])
+      setTreatments(prev => [...prev, data.treatment])
       setNewForm(EMPTY_FORM)
       setShowNew(false)
+    } else {
+      alert(data.error || 'Could not save treatment')
     }
     setSaving(false)
   }
@@ -77,15 +103,44 @@ export default function TreatmentsClient({ initialTreatments }) {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(patch),
     })
+    const data = await res.json().catch(() => ({}))
     if (res.ok) {
-      const { treatment } = await res.json()
-      setTreatments(prev => prev.map(x => x.id === t.id ? treatment : x))
+      setTreatments(prev => prev.map(x => x.id === t.id ? data.treatment : x))
       setEditingId(null)
+    } else {
+      alert(data.error || 'Could not save treatment')
     }
   }
 
   return (
     <div>
+      {/* Live preview of the booking widget's "Choose a treatment" shortlist —
+          exactly what guests see, so staff know which treatments are surfacing
+          and why, without opening the public site. */}
+      <div style={{ background: '#F0F4F2', border: '1px solid var(--color-border)', borderRadius: 8, padding: 16, marginBottom: 16, maxWidth: 560 }}>
+        <div style={{ font: '600 11px Inter,sans-serif', letterSpacing: 1, textTransform: 'uppercase', color: '#3B5249' }}>
+          Booking form — live Top {BOOKING_TOP_N}
+        </div>
+        <div style={{ font: '400 11px/1.6 Inter,sans-serif', color: '#6B6663', margin: '4px 0 10px' }}>
+          What guests see now in “Choose a treatment”: ⭐ featured first (menu order), then 🔥 best-sellers (last 45 days), capped at {BOOKING_TOP_N}. Featured slots used: <strong style={{ color: featuredFull ? '#B8860B' : '#3B5249' }}>{featuredCount}/{BOOKING_TOP_N}</strong>.
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {topN.map((t, i) => {
+            const reason = bookingSlotReason(t, popularIds)
+            const tag = reason === 'featured' ? '⭐ Featured' : reason === 'bestseller' ? '🔥 Best-seller' : 'Menu order'
+            const tagColor = reason === 'featured' ? '#3B5249' : reason === 'bestseller' ? '#8A6528' : '#9B9390'
+            return (
+              <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 10, font: '400 13px Inter,sans-serif', color: '#1C1917' }}>
+                <span style={{ font: '600 12px Inter,sans-serif', color: '#9B9390', width: 16 }}>{i + 1}</span>
+                <span style={{ flex: 1 }}>{t.name}</span>
+                <span style={{ font: '600 10px Inter,sans-serif', color: tagColor, whiteSpace: 'nowrap' }}>{tag}</span>
+              </div>
+            )
+          })}
+          {topN.length === 0 && <div style={{ font: '400 12px Inter,sans-serif', color: '#9B9390' }}>No active treatments to show yet.</div>}
+        </div>
+      </div>
+
       <button onClick={() => setShowNew(v => !v)} style={{ marginBottom: 16, background: '#3B5249', color: '#fff', border: 'none', borderRadius: 4, padding: '10px 18px', font: '600 12px Inter,sans-serif', cursor: 'pointer' }}>
         {showNew ? 'Cancel' : '+ Add Treatment'}
       </button>
@@ -110,10 +165,22 @@ export default function TreatmentsClient({ initialTreatments }) {
             <input type="checkbox" checked={newForm.show_on_homepage} onChange={e => setNewForm(f => ({ ...f, show_on_homepage: e.target.checked }))} />
             Show on homepage (uses the order above)
           </label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, font: '500 12px Inter,sans-serif', color: '#1C1917', cursor: 'pointer' }}>
-            <input type="checkbox" checked={newForm.is_featured} onChange={e => setNewForm(f => ({ ...f, is_featured: e.target.checked }))} />
-            ⭐ Feature in booking Top 5 (shown first in the booking form)
-          </label>
+          {(() => {
+            const lockFeature = featuredFull && !newForm.is_featured
+            return (
+              <div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, font: '500 12px Inter,sans-serif', color: lockFeature ? '#B8B2AE' : '#1C1917', cursor: lockFeature ? 'not-allowed' : 'pointer' }}>
+                  <input type="checkbox" checked={newForm.is_featured} disabled={lockFeature} onChange={e => setNewForm(f => ({ ...f, is_featured: e.target.checked }))} />
+                  ⭐ Feature in booking Top {BOOKING_TOP_N} (shown first in the booking form)
+                </label>
+                {lockFeature && (
+                  <div style={{ font: '400 11px Inter,sans-serif', color: '#B8860B', marginTop: 4 }}>
+                    Already {BOOKING_TOP_N} treatments featured — un-feature one first.
+                  </div>
+                )}
+              </div>
+            )
+          })()}
           <PhotoManager photos={newForm.photos} onChange={photos => setNewForm(f => ({ ...f, photos }))} />
           <button onClick={handleCreate} disabled={saving || !newForm.name} style={{ background: '#C4924A', color: '#fff', border: 'none', borderRadius: 4, padding: '10px 18px', font: '600 12px Inter,sans-serif', cursor: 'pointer' }}>
             {saving ? 'Saving…' : 'Create Treatment'}
@@ -182,7 +249,7 @@ export default function TreatmentsClient({ initialTreatments }) {
             </div>
 
             {editingId === t.id && (
-              <EditForm treatment={t} onSave={patch => handleSaveEdit(t, patch)} />
+              <EditForm treatment={t} featuredCount={featuredCount} onSave={patch => handleSaveEdit(t, patch)} />
             )}
           </div>
         ))}
@@ -191,7 +258,7 @@ export default function TreatmentsClient({ initialTreatments }) {
   )
 }
 
-function EditForm({ treatment, onSave }) {
+function EditForm({ treatment, featuredCount = 0, onSave }) {
   const [name, setName] = useState(treatment.name)
   const [description, setDescription] = useState(treatment.description ?? '')
   const [badge, setBadge] = useState(treatment.badge ?? '')
@@ -234,10 +301,23 @@ function EditForm({ treatment, onSave }) {
         <input type="checkbox" checked={showOnHomepage} onChange={e => setShowOnHomepage(e.target.checked)} />
         Show on homepage (uses the order above)
       </label>
-      <label style={{ display: 'flex', alignItems: 'center', gap: 8, font: '500 12px Inter,sans-serif', color: '#1C1917', cursor: 'pointer' }}>
-        <input type="checkbox" checked={isFeatured} onChange={e => setIsFeatured(e.target.checked)} />
-        ⭐ Feature in booking Top 5 (shown first in the booking form)
-      </label>
+      {(() => {
+        // Can't newly feature this one if the cap is already full with OTHERS.
+        const lockFeature = !treatment.is_featured && featuredCount >= BOOKING_TOP_N
+        return (
+          <div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, font: '500 12px Inter,sans-serif', color: lockFeature ? '#B8B2AE' : '#1C1917', cursor: lockFeature ? 'not-allowed' : 'pointer' }}>
+              <input type="checkbox" checked={isFeatured} disabled={lockFeature} onChange={e => setIsFeatured(e.target.checked)} />
+              ⭐ Feature in booking Top {BOOKING_TOP_N} (shown first in the booking form)
+            </label>
+            {lockFeature && (
+              <div style={{ font: '400 11px Inter,sans-serif', color: '#B8860B', marginTop: 4 }}>
+                Already {BOOKING_TOP_N} treatments featured — un-feature one first.
+              </div>
+            )}
+          </div>
+        )
+      })()}
       <PhotoManager photos={photos} onChange={setPhotos} />
       <button onClick={handleSave} disabled={saving} style={{ background: '#3B5249', color: '#fff', border: 'none', borderRadius: 4, padding: '10px 18px', font: '600 12px Inter,sans-serif', cursor: 'pointer' }}>
         {saving ? 'Saving…' : 'Save Changes'}

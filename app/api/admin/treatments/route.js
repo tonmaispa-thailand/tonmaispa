@@ -1,4 +1,5 @@
 import { requireAdmin } from '@/lib/require-admin'
+import { BOOKING_TOP_N } from '@/lib/booking-ranking'
 
 function slugify(name) {
   return name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
@@ -10,6 +11,18 @@ export async function POST(req) {
 
   const body = await req.json()
   if (!body.name) return Response.json({ error: 'Name is required' }, { status: 400 })
+
+  // At most BOOKING_TOP_N treatments may be featured, so every featured one is
+  // guaranteed a slot in the booking shortlist (mirrors the dashboard's disabled
+  // checkbox — this is the authoritative check for any non-UI caller).
+  if (body.is_featured === true) {
+    const { count, error: countErr } = await auth.admin
+      .from('spa_treatments').select('id', { count: 'exact', head: true }).eq('is_featured', true)
+    if (countErr) return Response.json({ error: countErr.message }, { status: 400 })
+    if ((count ?? 0) >= BOOKING_TOP_N) {
+      return Response.json({ error: `You can feature at most ${BOOKING_TOP_N} treatments. Un-feature another one first.`, code: 'FEATURED_LIMIT' }, { status: 409 })
+    }
+  }
 
   const row = {
     name:             body.name,

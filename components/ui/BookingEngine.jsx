@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import { rankBookingTopN } from '@/lib/booking-ranking'
 
 const SITEKEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? ''
 const MONTHS  = ['January','February','March','April','May','June','July','August','September','October','November','December']
@@ -180,30 +181,13 @@ export default function BookingEngine({ presetSlug }) {
   }, [supabase, presetSlug])
 
   const addOns = treatments.filter(t => t.category === 'add_on' && t.id !== treatment?.id)
-  // Build the five-item shortlist shown in "Choose a treatment", in priority
-  // order (first match wins, no duplicates, capped at five):
-  //   1. Owner-pinned `is_featured` treatments — a deliberate override so a new
-  //      or promoted service can jump the queue even with no booking history.
-  //   2. Auto best-sellers from the rolling 45-day window (popularTreatmentIds).
-  //   3. Anything left, to top the list up to five.
-  // `treatments` arrives already sorted by sort_order, so featured and the
-  // top-up fill in menu order. With nothing pinned this reduces to exactly the
-  // previous behaviour ([...popular, ...rest].slice(0, 5)).
-  const bestSellingTreatments = useMemo(() => {
-    const eligible = treatments.filter(t => t.category !== 'add_on')
-    const byId = new Map(eligible.map(t => [t.id, t]))
-    const featured = eligible.filter(t => t.is_featured)
-    const popular = popularTreatmentIds.map(id => byId.get(id)).filter(Boolean)
-    const seen = new Set()
-    const result = []
-    for (const t of [...featured, ...popular, ...eligible]) {
-      if (!t || seen.has(t.id)) continue
-      seen.add(t.id)
-      result.push(t)
-      if (result.length === 5) break
-    }
-    return result
-  }, [treatments, popularTreatmentIds])
+  // The shortlist shown in "Choose a treatment" — owner-pinned featured first,
+  // then auto best-sellers, deduped and capped. Ranking lives in
+  // lib/booking-ranking so the admin live preview can't drift from this.
+  const bestSellingTreatments = useMemo(
+    () => rankBookingTopN({ treatments, popularIds: popularTreatmentIds }),
+    [treatments, popularTreatmentIds],
+  )
   const toggleAddon = (id) => setSelectedAddonIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
 
   // Fetch slots when date changes. A request counter guards against
