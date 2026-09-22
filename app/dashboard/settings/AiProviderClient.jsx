@@ -18,8 +18,10 @@ const PRESETS = [
     id: 'openrouter', label: 'OpenRouter', base_url: 'https://openrouter.ai/api',
     models: [
       { value: 'openai/gpt-4o-mini',                 label: 'GPT-4o mini — cheap & easy (recommended)' },
+      { value: 'anthropic/claude-haiku-4.5',         label: 'Claude Haiku 4.5 — fast & cheap' },
       { value: 'google/gemini-2.5-flash',            label: 'Gemini 2.5 Flash — fast & cheap' },
       { value: 'deepseek/deepseek-chat',             label: 'DeepSeek Chat — cheapest' },
+      { value: 'anthropic/claude-sonnet-4.5',        label: 'Claude Sonnet 4.5 — most capable' },
       { value: 'openai/gpt-5.6-luna',                label: 'GPT-5.6 Luna' },
       { value: 'meta-llama/llama-3.3-70b-instruct',  label: 'Llama 3.3 70B — open model' },
     ],
