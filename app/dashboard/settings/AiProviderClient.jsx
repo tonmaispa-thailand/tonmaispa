@@ -6,13 +6,35 @@
 // round-tripped to the browser (status shows only the last 4 chars).
 import { useEffect, useState } from 'react'
 
-// Presets just prefill the base URL and hint the model format — the owner still
-// pastes their own model id + key. baseURL is what actually routes; the label
-// is cosmetic. All three speak the Anthropic Messages protocol.
+// Presets prefill the base URL and offer a short, curated model list so the
+// owner just picks one instead of typing a slug. baseURL is what actually
+// routes; all three speak the Anthropic Messages protocol. The OpenRouter list
+// is verified working through OpenRouter's Anthropic endpoint; the first entry
+// in each list is a sensible, inexpensive default for a spa chatbot. "Custom"
+// (added in the dropdown) reveals a free-text box for anything not listed.
+const CUSTOM = '__custom__'
 const PRESETS = [
-  { id: 'minimax',    label: 'MiniMax',           base_url: 'https://api.minimax.io/anthropic', modelHint: 'e.g. MiniMax-M3' },
-  { id: 'anthropic',  label: 'Claude (Anthropic)', base_url: 'https://api.anthropic.com',        modelHint: 'e.g. claude-fable-5-1' },
-  { id: 'openrouter', label: 'OpenRouter',        base_url: 'https://openrouter.ai/api',        modelHint: 'e.g. anthropic/claude-fable-5.1 or deepseek/deepseek-v4' },
+  {
+    id: 'openrouter', label: 'OpenRouter', base_url: 'https://openrouter.ai/api',
+    models: [
+      { value: 'openai/gpt-4o-mini',                 label: 'GPT-4o mini — cheap & easy (recommended)' },
+      { value: 'google/gemini-2.5-flash',            label: 'Gemini 2.5 Flash — fast & cheap' },
+      { value: 'deepseek/deepseek-chat',             label: 'DeepSeek Chat — cheapest' },
+      { value: 'openai/gpt-5.6-luna',                label: 'GPT-5.6 Luna' },
+      { value: 'meta-llama/llama-3.3-70b-instruct',  label: 'Llama 3.3 70B — open model' },
+    ],
+  },
+  {
+    id: 'minimax', label: 'MiniMax', base_url: 'https://api.minimax.io/anthropic',
+    models: [{ value: 'MiniMax-M3', label: 'MiniMax-M3' }],
+  },
+  {
+    id: 'anthropic', label: 'Claude (Anthropic)', base_url: 'https://api.anthropic.com',
+    models: [
+      { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5 — fast & cheap (recommended)' },
+      { value: 'claude-sonnet-5',           label: 'Claude Sonnet 5 — most capable' },
+    ],
+  },
 ]
 
 const CARD = { background: '#fff', border: '1px solid var(--color-border)', borderRadius: 8, padding: 20, marginBottom: 16 }
@@ -23,7 +45,7 @@ export default function AiProviderClient() {
   const [status, setStatus]   = useState(null)   // masked status from GET
   const [loading, setLoading] = useState(true)
   const [form, setForm]       = useState({ provider: '', base_url: '', model: '', api_key: '' })
-  const [modelHint, setModelHint] = useState('')
+  const [customModel, setCustomModel] = useState(false) // true = type a slug instead of picking
   const [busy, setBusy]       = useState(false)
   const [error, setError]     = useState('')
   const [success, setSuccess] = useState('')
@@ -44,9 +66,17 @@ export default function AiProviderClient() {
   useEffect(() => { loadStatus() }, [])
 
   const pickPreset = (p) => {
-    setForm(f => ({ ...f, provider: p.id, base_url: p.base_url }))
-    setModelHint(p.modelHint)
+    // Default to the first (recommended) model so the owner can just paste a key.
+    setForm(f => ({ ...f, provider: p.id, base_url: p.base_url, model: p.models[0].value }))
+    setCustomModel(false)
     setSuccess(''); setError('')
+  }
+
+  const activePreset = PRESETS.find(p => p.id === form.provider)
+
+  const onModelSelect = (v) => {
+    if (v === CUSTOM) { setCustomModel(true); setField('model', '') }
+    else { setCustomModel(false); setField('model', v) }
   }
 
   const setField = (k, v) => { setForm(f => ({ ...f, [k]: v })); setSuccess(''); setError('') }
@@ -154,9 +184,32 @@ export default function AiProviderClient() {
             </div>
             <div>
               <label style={LBL}>Model</label>
-              <input className="input" placeholder={modelHint || 'model id'} value={form.model}
-                onChange={e => setField('model', e.target.value)} />
-              {modelHint && <div style={{ font: '400 11px Inter,sans-serif', color: '#9B9390', marginTop: 3 }}>{modelHint}</div>}
+              {activePreset && !customModel ? (
+                <select className="input" style={{ cursor: 'pointer' }}
+                  value={form.model} onChange={e => onModelSelect(e.target.value)}>
+                  {activePreset.models.map(m => (
+                    <option key={m.value} value={m.value}>{m.label}</option>
+                  ))}
+                  <option value={CUSTOM}>Custom — type a model id…</option>
+                </select>
+              ) : (
+                <>
+                  <input className="input" placeholder="model id (e.g. openai/gpt-4o-mini)"
+                    value={form.model} onChange={e => setField('model', e.target.value)} />
+                  {activePreset && (
+                    <button type="button"
+                      onClick={() => { setCustomModel(false); setField('model', activePreset.models[0].value) }}
+                      style={{ marginTop: 6, background: 'transparent', border: 'none', color: '#3B5249', font: '500 11px Inter,sans-serif', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}>
+                      ← back to the list
+                    </button>
+                  )}
+                </>
+              )}
+              {activePreset && !customModel && (
+                <div style={{ font: '400 11px Inter,sans-serif', color: '#9B9390', marginTop: 3 }}>
+                  For a spa chatbot the top option is plenty — no need for an expensive model.
+                </div>
+              )}
             </div>
             <div>
               <label style={LBL}>API key</label>
