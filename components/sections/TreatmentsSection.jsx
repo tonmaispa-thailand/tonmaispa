@@ -81,7 +81,7 @@ export default function TreatmentsSection({ treatments = [], settings = {}, lang
                       <div style={{ font: '600 11px Inter,sans-serif', letterSpacing: 1.5, textTransform: 'uppercase', color: '#9B9390' }}>From</div>
                       <div style={{ font: '400 24px Cormorant Garamond,serif', color: '#1C1917' }}>฿{price}</div>
                     </div>
-                    <TrackedLink href="#contact" event="book_now_click" params={{ method: 'treatment_card', treatment: t.name }} style={{ background: '#3B5249', color: '#fff', padding: '10px 18px', borderRadius: 2, font: '600 10px Inter,sans-serif', letterSpacing: 2, textTransform: 'uppercase' }}>Book</TrackedLink>
+                    <TrackedLink href={t.slug ? `/${lang}/book?treatment=${t.slug}` : `/${lang}/book`} event="book_now_click" params={{ method: 'treatment_card', treatment: t.name }} style={{ background: '#3B5249', color: '#fff', padding: '10px 18px', borderRadius: 2, font: '600 10px Inter,sans-serif', letterSpacing: 2, textTransform: 'uppercase' }}>Book</TrackedLink>
                   </div>}
                 </div>
               </div>
