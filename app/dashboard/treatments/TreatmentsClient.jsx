@@ -21,6 +21,7 @@ export default function TreatmentsClient({ initialTreatments }) {
   const [categoryFilter, setCategoryFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
   const [homepageFilter, setHomepageFilter] = useState('all')
+  const [featuredFilter, setFeaturedFilter] = useState('all')
   const [search, setSearch] = useState('')
   const [sortBy, setSortBy] = useState('order') // 'order' | 'name'
 
@@ -28,6 +29,7 @@ export default function TreatmentsClient({ initialTreatments }) {
     .filter(t => categoryFilter === 'all' || t.category === categoryFilter)
     .filter(t => statusFilter === 'all' || (statusFilter === 'active' ? t.is_active : !t.is_active))
     .filter(t => homepageFilter === 'all' || (homepageFilter === 'yes' ? t.show_on_homepage : !t.show_on_homepage))
+    .filter(t => featuredFilter === 'all' || (featuredFilter === 'yes' ? t.is_featured : !t.is_featured))
     .filter(t => !search.trim() || t.name.toLowerCase().includes(search.trim().toLowerCase()))
     .sort((a, b) => sortBy === 'name' ? a.name.localeCompare(b.name) : (a.sort_order ?? 0) - (b.sort_order ?? 0))
 
@@ -134,6 +136,11 @@ export default function TreatmentsClient({ initialTreatments }) {
           <option value="all">Homepage: all</option>
           <option value="yes">On homepage</option>
           <option value="no">Not on homepage</option>
+        </select>
+        <select className="input" value={featuredFilter} onChange={e => setFeaturedFilter(e.target.value)} style={{ maxWidth: 180 }}>
+          <option value="all">Featured: all</option>
+          <option value="yes">Featured only</option>
+          <option value="no">Not featured</option>
         </select>
         <select className="input" value={sortBy} onChange={e => setSortBy(e.target.value)} style={{ maxWidth: 150 }}>
           <option value="order">Sort by order</option>
