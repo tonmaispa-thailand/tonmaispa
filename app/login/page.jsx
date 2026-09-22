@@ -9,7 +9,12 @@ import PasswordInput from '@/components/ui/PasswordInput'
 function LoginForm() {
   const router = useRouter()
   const params = useSearchParams()
-  const redirectTo = params.get('redirectTo') ?? '/dashboard'
+  // Only follow a same-origin RELATIVE path after login — must start with "/"
+  // then a normal char. Rejects absolute URLs, "//host" and the "/\host"
+  // backslash trick, so ?redirectTo=https://evil.com can't phish a logged-in
+  // user off-site. Same guard as app/auth/callback/route.js.
+  const rawRedirect = params.get('redirectTo')
+  const redirectTo = rawRedirect && /^\/[^/\\]/.test(rawRedirect) ? rawRedirect : '/dashboard'
 
   const [email,    setEmail]    = useState('')
   const [password, setPassword] = useState('')
