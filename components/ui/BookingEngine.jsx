@@ -156,7 +156,7 @@ export default function BookingEngine({ presetSlug }) {
   useEffect(() => {
     Promise.all([
       supabase.from('spa_treatments')
-        .select('id, slug, name, category, description, duration_options, prices, badge')
+        .select('id, slug, name, category, description, duration_options, prices, badge, is_featured')
         .eq('is_active', true)
         .order('sort_order'),
       fetch('/api/bookings/popular-treatments')
@@ -180,15 +180,29 @@ export default function BookingEngine({ presetSlug }) {
   }, [supabase, presetSlug])
 
   const addOns = treatments.filter(t => t.category === 'add_on' && t.id !== treatment?.id)
-  // Rank by confirmed/completed bookings from the rolling 45-day window.
-  // The API supplies a complete top five, using the curated order only to
-  // break ties or fill gaps when a treatment has no recent booking history.
+  // Build the five-item shortlist shown in "Choose a treatment", in priority
+  // order (first match wins, no duplicates, capped at five):
+  //   1. Owner-pinned `is_featured` treatments — a deliberate override so a new
+  //      or promoted service can jump the queue even with no booking history.
+  //   2. Auto best-sellers from the rolling 45-day window (popularTreatmentIds).
+  //   3. Anything left, to top the list up to five.
+  // `treatments` arrives already sorted by sort_order, so featured and the
+  // top-up fill in menu order. With nothing pinned this reduces to exactly the
+  // previous behaviour ([...popular, ...rest].slice(0, 5)).
   const bestSellingTreatments = useMemo(() => {
     const eligible = treatments.filter(t => t.category !== 'add_on')
     const byId = new Map(eligible.map(t => [t.id, t]))
-    const ranked = popularTreatmentIds.map(id => byId.get(id)).filter(Boolean)
-    const rankedIds = new Set(ranked.map(t => t.id))
-    return [...ranked, ...eligible.filter(t => !rankedIds.has(t.id))].slice(0, 5)
+    const featured = eligible.filter(t => t.is_featured)
+    const popular = popularTreatmentIds.map(id => byId.get(id)).filter(Boolean)
+    const seen = new Set()
+    const result = []
+    for (const t of [...featured, ...popular, ...eligible]) {
+      if (!t || seen.has(t.id)) continue
+      seen.add(t.id)
+      result.push(t)
+      if (result.length === 5) break
+    }
+    return result
   }, [treatments, popularTreatmentIds])
   const toggleAddon = (id) => setSelectedAddonIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
 

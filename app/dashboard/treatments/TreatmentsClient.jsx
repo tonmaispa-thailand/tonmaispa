@@ -6,7 +6,7 @@ import { TREATMENT_CATEGORIES } from '@/lib/display'
 import { resizeImageForUpload } from '@/lib/resize-image'
 
 const CATEGORIES = Object.keys(TREATMENT_CATEGORIES)
-const EMPTY_FORM = { name: '', category: 'massage', description: '', badge: '', durationsCsv: '60,90', pricesCsv: '600,850', is_active: true, photos: [], sort_order: 0, show_on_homepage: false }
+const EMPTY_FORM = { name: '', category: 'massage', description: '', badge: '', durationsCsv: '60,90', pricesCsv: '600,850', is_active: true, photos: [], sort_order: 0, show_on_homepage: false, is_featured: false }
 const CLOUD_NAME    = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME
 const UPLOAD_PRESET = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET
 
@@ -108,6 +108,10 @@ export default function TreatmentsClient({ initialTreatments }) {
             <input type="checkbox" checked={newForm.show_on_homepage} onChange={e => setNewForm(f => ({ ...f, show_on_homepage: e.target.checked }))} />
             Show on homepage (uses the order above)
           </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, font: '500 12px Inter,sans-serif', color: '#1C1917', cursor: 'pointer' }}>
+            <input type="checkbox" checked={newForm.is_featured} onChange={e => setNewForm(f => ({ ...f, is_featured: e.target.checked }))} />
+            ⭐ Feature in booking Top 5 (shown first in the booking form)
+          </label>
           <PhotoManager photos={newForm.photos} onChange={photos => setNewForm(f => ({ ...f, photos }))} />
           <button onClick={handleCreate} disabled={saving || !newForm.name} style={{ background: '#C4924A', color: '#fff', border: 'none', borderRadius: 4, padding: '10px 18px', font: '600 12px Inter,sans-serif', cursor: 'pointer' }}>
             {saving ? 'Saving…' : 'Create Treatment'}
@@ -147,6 +151,7 @@ export default function TreatmentsClient({ initialTreatments }) {
                   {t.name} {t.badge && <span style={{ background: '#E8EDE9', color: '#3B5249', padding: '2px 8px', borderRadius: 999, font: '600 9px Inter,sans-serif', marginLeft: 6 }}>{t.badge}</span>}
                   {t.photos?.length > 0 && <span style={{ color: '#9B9390', font: '400 11px Inter,sans-serif', marginLeft: 8 }}>📷 {t.photos.length}</span>}
                   {t.show_on_homepage && <span style={{ background: '#FBF0DF', color: '#C4924A', padding: '2px 8px', borderRadius: 999, font: '600 9px Inter,sans-serif', marginLeft: 6 }}>🏠 Homepage</span>}
+                  {t.is_featured && <span style={{ background: '#F0F4F2', color: '#3B5249', padding: '2px 8px', borderRadius: 999, font: '600 9px Inter,sans-serif', marginLeft: 6 }}>⭐ Featured</span>}
                 </div>
                 <div style={{ font: '400 12px Inter,sans-serif', color: '#9B9390', marginTop: 2 }}>{TREATMENT_CATEGORIES[t.category] ?? t.category} · order {t.sort_order ?? 0}</div>
               </div>
@@ -189,6 +194,7 @@ function EditForm({ treatment, onSave }) {
   const [photos, setPhotos] = useState(treatment.photos ?? [])
   const [sortOrder, setSortOrder] = useState(treatment.sort_order ?? 0)
   const [showOnHomepage, setShowOnHomepage] = useState(treatment.show_on_homepage ?? false)
+  const [isFeatured, setIsFeatured] = useState(treatment.is_featured ?? false)
   const [saving, setSaving] = useState(false)
 
   const handleSave = async () => {
@@ -197,7 +203,7 @@ function EditForm({ treatment, onSave }) {
     const priceList = pricesCsv.split(',').map(s => parseInt(s.trim(), 10))
     const prices = {}
     durations.forEach((d, i) => { if (priceList[i]) prices[String(d)] = priceList[i] })
-    await onSave({ name, description, badge: badge || null, category, duration_options: durations, prices, photos, sort_order: sortOrder, show_on_homepage: showOnHomepage })
+    await onSave({ name, description, badge: badge || null, category, duration_options: durations, prices, photos, sort_order: sortOrder, show_on_homepage: showOnHomepage, is_featured: isFeatured })
     setSaving(false)
   }
 
@@ -220,6 +226,10 @@ function EditForm({ treatment, onSave }) {
       <label style={{ display: 'flex', alignItems: 'center', gap: 8, font: '500 12px Inter,sans-serif', color: '#1C1917', cursor: 'pointer' }}>
         <input type="checkbox" checked={showOnHomepage} onChange={e => setShowOnHomepage(e.target.checked)} />
         Show on homepage (uses the order above)
+      </label>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 8, font: '500 12px Inter,sans-serif', color: '#1C1917', cursor: 'pointer' }}>
+        <input type="checkbox" checked={isFeatured} onChange={e => setIsFeatured(e.target.checked)} />
+        ⭐ Feature in booking Top 5 (shown first in the booking form)
       </label>
       <PhotoManager photos={photos} onChange={setPhotos} />
       <button onClick={handleSave} disabled={saving} style={{ background: '#3B5249', color: '#fff', border: 'none', borderRadius: 4, padding: '10px 18px', font: '600 12px Inter,sans-serif', cursor: 'pointer' }}>
