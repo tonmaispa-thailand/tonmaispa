@@ -1,11 +1,7 @@
 {
   "crons": [
     {
-      "path": "/api/admin/bookings/send-reminders",
-      "schedule": "0 3 * * *"
-    },
-    {
-      "path": "/api/admin/bookings/send-followups",
+      "path": "/api/admin/users/send-invite-reminders",
       "schedule": "0 4 * * *"
     }
   ]
