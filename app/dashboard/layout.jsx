@@ -10,7 +10,9 @@ import { createServerComponentClient } from '@supabase/auth-helpers-nextjs'
 import { redirect } from 'next/navigation'
 import { createSupabaseAdminClient } from '@/lib/supabase-admin'
 import { getSettingsMap } from '@/lib/site-settings'
+import { getAlarmState } from '@/lib/booking-alarm'
 import DashNav from './DashNav'
+import BookingAlarmBar from './BookingAlarmBar'
 
 export const metadata = { robots: { index: false, follow: false } }
 
@@ -27,18 +29,27 @@ export default async function DashboardLayout({ children }) {
     .single()
 
   const admin = createSupabaseAdminClient()
-  const flags = await getSettingsMap(admin, ['settings.insights_enabled', 'settings.campaigns_enabled'])
+  const [flags, alarm] = await Promise.all([
+    getSettingsMap(admin, ['settings.insights_enabled', 'settings.campaigns_enabled']),
+    // A transient failure here (e.g. a momentary DB hiccup) must never take
+    // down the whole dashboard — fall back to "nothing pending" and let the
+    // client-side poll in BookingAlarmBar pick it up on its next tick.
+    getAlarmState(admin).catch(() => ({ bookings: [], enabled: false, volume: 70 })),
+  ])
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', background: 'var(--color-bg)' }}>
-      <DashNav
-        fullName={profile?.full_name} role={profile?.role} email={session.user.email}
-        insightsEnabled={flags['settings.insights_enabled'] === 'true'}
-        campaignsEnabled={flags['settings.campaigns_enabled'] === 'true'}
-      />
-      <main style={{ flex: 1, padding: 'clamp(20px,3vw,40px)', minWidth: 0 }}>
-        {children}
-      </main>
-    </div>
+    <>
+      <BookingAlarmBar initialBookings={alarm.bookings} initialEnabled={alarm.enabled} initialVolume={alarm.volume} />
+      <div style={{ minHeight: '100vh', display: 'flex', background: 'var(--color-bg)' }}>
+        <DashNav
+          fullName={profile?.full_name} role={profile?.role} email={session.user.email}
+          insightsEnabled={flags['settings.insights_enabled'] === 'true'}
+          campaignsEnabled={flags['settings.campaigns_enabled'] === 'true'}
+        />
+        <main style={{ flex: 1, padding: 'clamp(20px,3vw,40px)', minWidth: 0 }}>
+          {children}
+        </main>
+      </div>
+    </>
   )
 }

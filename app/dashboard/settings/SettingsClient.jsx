@@ -10,6 +10,7 @@ const BOOLEAN_KEYS = [
   'settings.campaigns_enabled',
   'settings.twilio_whatsapp_enabled',
   'settings.whatsapp_chatbot_enabled',
+  'settings.booking_alarm_enabled',
 ]
 
 // Toggles whose stored value is a pair of words rather than 'true'/'false'
@@ -20,11 +21,19 @@ const WORD_TOGGLE_KEYS = {
 const TEXTAREA_KEYS = ['settings.homepage_services_subheading', 'settings.homepage_facilities_subheading', 'settings.chatbot_custom_notes']
 const NUMBER_KEYS   = ['settings.homepage_services_count']
 
+// Keys rendered as a slider rather than a bare number input — {min, max}.
+const RANGE_KEYS = {
+  'settings.booking_alarm_volume': { min: 0, max: 100 },
+}
+
 // Keys an `owner` account is allowed to see and change — everything else
 // (contact info, business info, homepage copy, and every toggle except the
-// two operational ones) is super_admin-only, enforced here for display and
-// again server-side in app/api/admin/settings/route.js.
-const OWNER_ALLOWED_KEYS = ['settings.maintenance_mode']
+// operational ones below) is super_admin-only, enforced here for display and
+// again server-side in app/api/admin/settings/route.js. The booking alarm is
+// day-to-day operational (not a business-model lever like the AI features
+// below it), so — like maintenance mode — the client's own owner account can
+// turn it on/off and set the volume without needing the agency.
+const OWNER_ALLOWED_KEYS = ['settings.maintenance_mode', 'settings.booking_alarm_enabled', 'settings.booking_alarm_volume']
 
 const FULL_GROUPS = [
   {
@@ -46,6 +55,10 @@ const FULL_GROUPS = [
   {
     title: 'Chatbot Knowledge',
     keys: ['settings.chatbot_custom_notes'],
+  },
+  {
+    title: 'Booking Alarm',
+    keys: ['settings.booking_alarm_enabled', 'settings.booking_alarm_volume'],
   },
   {
     title: 'Feature Toggles',
@@ -89,10 +102,14 @@ const LABELS = {
   'settings.twilio_whatsapp_enabled':     'WhatsApp booking updates (via Twilio)',
   'settings.whatsapp_chatbot_enabled':    'WhatsApp chatbot replies enabled',
   'settings.maintenance_mode':            'Maintenance mode',
+  'settings.booking_alarm_enabled':       'New-booking sound alarm',
+  'settings.booking_alarm_volume':        'Alarm volume',
 }
 
 const HINTS = {
   'settings.homepage_facilities_eyebrow': 'The photos themselves are managed on the Facilities dashboard page, not here.',
+  'settings.booking_alarm_enabled':  'Loops a sound alert on every open dashboard screen when a booking arrives online or via the chatbot, until staff confirms or cancels it. A booking staff enter themselves (phone, walk-in) never triggers it.',
+  'settings.booking_alarm_volume':   'How loud the alert plays. Takes effect on the next poll (a few seconds), no save-and-reload needed once you hit Save All Settings.',
   'settings.insights_enabled':      'Premium feature — gate this for clients who haven\'t paid for AI analytics access.',
   'settings.campaigns_enabled':     'Premium feature — gate this for clients who haven\'t paid for AI analytics access.',
   'settings.whatsapp_chatbot_enabled': 'Premium feature — automatically answers inbound WhatsApp messages and stores them in the unified conversation timeline. Turn this off to stop bot replies immediately.',
@@ -182,6 +199,17 @@ export default function SettingsClient({ initialSettings, role }) {
                       checked={values[key] === WORD_TOGGLE_KEYS[key].on}
                       onChange={v => setValue(key, v ? WORD_TOGGLE_KEYS[key].on : WORD_TOGGLE_KEYS[key].off)}
                     />
+                  </div>
+                ) : RANGE_KEYS[key] ? (
+                  <div style={{ padding: '4px 0' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16 }}>
+                      <div style={{ font: '500 13px Inter,sans-serif', color: '#1C1917' }}>{LABELS[key] ?? key}</div>
+                      <div style={{ font: '600 13px Inter,sans-serif', color: '#3B5249', flexShrink: 0 }}>{values[key] ?? RANGE_KEYS[key].min}</div>
+                    </div>
+                    {HINTS[key] && <div style={{ font: '400 11px Inter,sans-serif', color: '#9B9390', marginTop: 2, maxWidth: 380 }}>{HINTS[key]}</div>}
+                    <input type="range" min={RANGE_KEYS[key].min} max={RANGE_KEYS[key].max}
+                      value={values[key] ?? RANGE_KEYS[key].min} onChange={e => setValue(key, e.target.value)}
+                      style={{ width: '100%', marginTop: 8, accentColor: '#3B5249' }} />
                   </div>
                 ) : (
                   <>

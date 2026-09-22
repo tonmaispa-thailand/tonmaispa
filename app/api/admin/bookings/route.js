@@ -102,6 +102,11 @@ export async function POST(req) {
       // Deliberate staff overbook — bypasses the DB capacity trigger and is
       // auditable on the row.
       overbooked:   Boolean(overbook),
+      // A staff member is submitting this form right now, so they already
+      // know about the booking — the dashboard's new-booking alarm (see
+      // migration 036) must never fire for it, regardless of what status
+      // or source they picked above.
+      staff_created: true,
     })
     .select('id, ref_code, guest_name, guest_phone, guest_email, date, time_slot, duration, status, source, notes, spa_treatments(name)')
     .single()

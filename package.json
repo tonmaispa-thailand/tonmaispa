@@ -14,6 +14,7 @@
     "test:ranking": "node --import ./scripts/register-alias.mjs scripts/test-booking-ranking.mjs",
     "test:ranges": "node --import ./scripts/register-alias.mjs scripts/test-report-ranges.mjs",
     "test:peaktimes": "node --import ./scripts/register-alias.mjs scripts/test-peak-times.mjs",
+    "test:alarm-schema": "node --import ./scripts/register-alias.mjs scripts/test-booking-alarm-schema.mjs",
     "test:chatbot": "node scripts/test-chatbot.mjs",
     "test:hallucination": "node scripts/test-hallucination.mjs",
     "blog:image": "node --env-file=.env.local scripts/gen-blog-image.mjs"
