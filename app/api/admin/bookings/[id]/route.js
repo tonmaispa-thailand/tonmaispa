@@ -141,7 +141,7 @@ export async function PATCH(req, { params }) {
     }
   }
 
-  const { data, error } = await auth.admin.from('bookings').update(updates).eq('id', id).select('*, spa_treatments(name), therapists(name)').single()
+  const { data, error } = await auth.admin.from('bookings').update(updates).eq('id', id).select('*, spa_treatments(name), therapists!bookings_therapist_id_fkey(name)').single()
   if (error) {
     // DB trigger backstop (race caught between pre-check and write, or a
     // status reactivation into a now-full slot) — same SLOT_FULL flow.

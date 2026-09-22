@@ -20,7 +20,7 @@ async function getData() {
   const admin = createSupabaseAdminClient()
   const [bookingsRes, treatmentsRes, therapistsRes, settingsRes] = await Promise.all([
     admin.from('bookings')
-      .select('id, ref_code, guest_name, guest_phone, guest_email, customer_id, treatment_id, therapist_id, date, time_slot, duration, addon_minutes, price, status, source, notes, staff_notes, created_at, last_email_sent_at, last_email_status, last_whatsapp_sent_at, last_whatsapp_status, whatsapp_reminder_sent_at, whatsapp_reminder_status, whatsapp_followup_sent_at, whatsapp_followup_status, spa_treatments(name), therapists(name)')
+      .select('id, ref_code, guest_name, guest_phone, guest_email, customer_id, treatment_id, therapist_id, date, time_slot, duration, addon_minutes, price, status, source, notes, staff_notes, created_at, last_email_sent_at, last_email_status, last_whatsapp_sent_at, last_whatsapp_status, whatsapp_reminder_sent_at, whatsapp_reminder_status, whatsapp_followup_sent_at, whatsapp_followup_status, spa_treatments(name), therapists!bookings_therapist_id_fkey(name)')
       .order('date', { ascending: false })
       .order('time_slot', { ascending: false })
       .limit(500),
