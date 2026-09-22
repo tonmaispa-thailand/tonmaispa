@@ -32,6 +32,7 @@ const NAV_GROUPS = [
     { href: '/dashboard/banners',    label: 'Banners', minRole: 'owner' },
   ]},
   { title: 'Insights & Admin', links: [
+    { href: '/dashboard/reports',    label: 'Reports' },
     { href: '/dashboard/analytics',  label: 'Analytics', minRole: 'owner' },
     { href: '/dashboard/insights',   label: 'Insights', flag: 'insights' },
     { href: '/dashboard/users',      label: 'Users', minRole: 'owner' },
