@@ -22,6 +22,7 @@ import { createSupabaseAdminClient } from '@/lib/supabase-admin'
 import { jsonLdScript, spaSchema }   from '@/lib/json-ld'
 import { translateRows, translateFields } from '@/lib/translate'
 import { LOCALES, getDictionary } from '@/lib/i18n/get-dictionary'
+import { PRICING_SECTION_MAX } from '@/lib/pricing-section'
 
 export const revalidate = 60
 
@@ -53,13 +54,24 @@ export async function generateMetadata({ params }) {
 async function getData(lang) {
   const admin = createSupabaseAdminClient()
 
-  const [treatmentsRes, settingsRes, galleryRes, facilitiesRes] = await Promise.all([
+  const [treatmentsRes, pricingTreatmentsRes, settingsRes, galleryRes, facilitiesRes] = await Promise.all([
     admin.from('spa_treatments')
       .select('id, name, slug, description, category, duration_options, prices, badge, photos')
       .eq('is_active', true)
       .eq('show_on_homepage', true)
       .order('sort_order')
       .limit(9),
+
+    // "Simple, inclusive pricing" section — owner-picked, single-price
+    // showcase items (packages, in practice), capped at PRICING_SECTION_MAX.
+    // Separate query from the one above: a treatment can be homepage-listed,
+    // pricing-showcased, both, or neither — independent flags.
+    admin.from('spa_treatments')
+      .select('id, name, slug, description, category, duration_options, prices, badge')
+      .eq('is_active', true)
+      .eq('show_in_pricing', true)
+      .order('sort_order')
+      .limit(PRICING_SECTION_MAX),
 
     admin.from('site_content')
       .select('key, value_text')
@@ -80,12 +92,14 @@ async function getData(lang) {
   let settings = Object.fromEntries(
     (settingsRes.data ?? []).map(r => [r.key, r.value_text])
   )
-  let treatments = treatmentsRes.data ?? []
+  let treatments        = treatmentsRes.data ?? []
+  let pricingTreatments = pricingTreatmentsRes.data ?? []
   let gallery    = galleryRes.data ?? []
   let facilities = facilitiesRes.data ?? []
 
   if (lang !== 'en') {
-    treatments = await translateRows('spa_treatments', treatments, ['name', 'description', 'badge'], lang)
+    treatments        = await translateRows('spa_treatments', treatments, ['name', 'description', 'badge'], lang)
+    pricingTreatments = await translateRows('spa_treatments', pricingTreatments, ['name', 'description', 'badge'], lang)
     facilities = await translateRows('facilities', facilities, ['title', 'body'], lang)
 
     // Only the homepage settings copy (headings/subheadings) is worth
@@ -106,12 +120,12 @@ async function getData(lang) {
     }
   }
 
-  return { treatments, settings, gallery, facilities }
+  return { treatments, pricingTreatments, settings, gallery, facilities }
 }
 
 export default async function HomePage({ params }) {
   const { lang } = await params
-  const [{ treatments, settings, gallery, facilities }, dict] = await Promise.all([
+  const [{ treatments, pricingTreatments, settings, gallery, facilities }, dict] = await Promise.all([
     getData(lang),
     getDictionary(lang),
   ])
@@ -142,7 +156,7 @@ export default async function HomePage({ params }) {
         <TreatmentsSection treatments={treatments} settings={settings} lang={lang} />
         <ThermoSection dict={dict} />
         <FacilitiesSection facilities={facilities} settings={settings} />
-        <PricingSection settings={settings} dict={dict} />
+        <PricingSection settings={settings} dict={dict} treatments={pricingTreatments} lang={lang} />
         <GallerySection gallery={gallery} dict={dict} />
         <ReviewsSection settings={settings} dict={dict} />
         <ContactSection settings={settings} dict={dict} />

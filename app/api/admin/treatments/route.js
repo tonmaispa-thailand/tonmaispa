@@ -1,5 +1,6 @@
 import { requireAdmin } from '@/lib/require-admin'
 import { BOOKING_TOP_N } from '@/lib/booking-ranking'
+import { PRICING_SECTION_MAX } from '@/lib/pricing-section'
 
 function slugify(name) {
   return name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
@@ -24,6 +25,16 @@ export async function POST(req) {
     }
   }
 
+  // Same cap pattern as is_featured above, for the homepage Pricing section.
+  if (body.show_in_pricing === true) {
+    const { count, error: countErr } = await auth.admin
+      .from('spa_treatments').select('id', { count: 'exact', head: true }).eq('show_in_pricing', true)
+    if (countErr) return Response.json({ error: countErr.message }, { status: 400 })
+    if ((count ?? 0) >= PRICING_SECTION_MAX) {
+      return Response.json({ error: `You can show at most ${PRICING_SECTION_MAX} treatments in the Pricing section. Remove another one first.`, code: 'PRICING_LIMIT' }, { status: 409 })
+    }
+  }
+
   const row = {
     name:             body.name,
     slug:             body.slug || slugify(body.name),
@@ -37,6 +48,7 @@ export async function POST(req) {
     is_active:        body.is_active ?? true,
     show_on_homepage: body.show_on_homepage ?? false,
     is_featured:      body.is_featured ?? false,
+    show_in_pricing:  body.show_in_pricing ?? false,
   }
 
   const { data, error } = await auth.admin.from('spa_treatments').insert(row).select().single()

@@ -5,9 +5,10 @@ import Image from 'next/image'
 import { TREATMENT_CATEGORIES } from '@/lib/display'
 import { resizeImageForUpload } from '@/lib/resize-image'
 import { rankBookingTopN, bookingSlotReason, BOOKING_TOP_N } from '@/lib/booking-ranking'
+import { PRICING_SECTION_MAX } from '@/lib/pricing-section'
 
 const CATEGORIES = Object.keys(TREATMENT_CATEGORIES)
-const EMPTY_FORM = { name: '', category: 'massage', description: '', badge: '', durationsCsv: '60,90', pricesCsv: '600,850', is_active: true, photos: [], sort_order: 0, show_on_homepage: false, is_featured: false }
+const EMPTY_FORM = { name: '', category: 'massage', description: '', badge: '', durationsCsv: '60,90', pricesCsv: '600,850', is_active: true, photos: [], sort_order: 0, show_on_homepage: false, is_featured: false, show_in_pricing: false }
 const CLOUD_NAME    = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME
 const UPLOAD_PRESET = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET
 
@@ -23,6 +24,7 @@ export default function TreatmentsClient({ initialTreatments }) {
   const [statusFilter, setStatusFilter] = useState('all')
   const [homepageFilter, setHomepageFilter] = useState('all')
   const [featuredFilter, setFeaturedFilter] = useState('all')
+  const [pricingFilter, setPricingFilter] = useState('all')
   const [search, setSearch] = useState('')
   const [sortBy, setSortBy] = useState('order') // 'order' | 'name'
   const [popularIds, setPopularIds] = useState([]) // auto best-sellers, for the live preview
@@ -41,12 +43,16 @@ export default function TreatmentsClient({ initialTreatments }) {
     .filter(t => statusFilter === 'all' || (statusFilter === 'active' ? t.is_active : !t.is_active))
     .filter(t => homepageFilter === 'all' || (homepageFilter === 'yes' ? t.show_on_homepage : !t.show_on_homepage))
     .filter(t => featuredFilter === 'all' || (featuredFilter === 'yes' ? t.is_featured : !t.is_featured))
+    .filter(t => pricingFilter === 'all' || (pricingFilter === 'yes' ? t.show_in_pricing : !t.show_in_pricing))
     .filter(t => !search.trim() || t.name.toLowerCase().includes(search.trim().toLowerCase()))
     .sort((a, b) => sortBy === 'name' ? a.name.localeCompare(b.name) : (a.sort_order ?? 0) - (b.sort_order ?? 0))
 
   // Featured cap + live preview of the real booking shortlist.
   const featuredCount = treatments.filter(t => t.is_featured).length
   const featuredFull  = featuredCount >= BOOKING_TOP_N
+  // Same cap pattern for the homepage Pricing section (see lib/pricing-section.js).
+  const pricingCount = treatments.filter(t => t.show_in_pricing).length
+  const pricingFull  = pricingCount >= PRICING_SECTION_MAX
   // Feed the ranking the SAME order guests get. BookingEngine's query does
   // .order('sort_order'); this page's getData() orders by category THEN
   // sort_order for the admin list, so sort a copy by sort_order alone here —
@@ -181,6 +187,22 @@ export default function TreatmentsClient({ initialTreatments }) {
               </div>
             )
           })()}
+          {(() => {
+            const lockPricing = pricingFull && !newForm.show_in_pricing
+            return (
+              <div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, font: '500 12px Inter,sans-serif', color: lockPricing ? '#B8B2AE' : '#1C1917', cursor: lockPricing ? 'not-allowed' : 'pointer' }}>
+                  <input type="checkbox" checked={newForm.show_in_pricing} disabled={lockPricing} onChange={e => setNewForm(f => ({ ...f, show_in_pricing: e.target.checked }))} />
+                  💎 Show in homepage Pricing section (packages/passes — max {PRICING_SECTION_MAX})
+                </label>
+                {lockPricing && (
+                  <div style={{ font: '400 11px Inter,sans-serif', color: '#B8860B', marginTop: 4 }}>
+                    Already {PRICING_SECTION_MAX} treatments shown there — remove one first.
+                  </div>
+                )}
+              </div>
+            )
+          })()}
           <PhotoManager photos={newForm.photos} onChange={photos => setNewForm(f => ({ ...f, photos }))} />
           <button onClick={handleCreate} disabled={saving || !newForm.name} style={{ background: '#C4924A', color: '#fff', border: 'none', borderRadius: 4, padding: '10px 18px', font: '600 12px Inter,sans-serif', cursor: 'pointer' }}>
             {saving ? 'Saving…' : 'Create Treatment'}
@@ -209,6 +231,11 @@ export default function TreatmentsClient({ initialTreatments }) {
           <option value="yes">Featured only</option>
           <option value="no">Not featured</option>
         </select>
+        <select className="input" value={pricingFilter} onChange={e => setPricingFilter(e.target.value)} style={{ maxWidth: 180 }}>
+          <option value="all">Pricing section: all</option>
+          <option value="yes">In pricing section</option>
+          <option value="no">Not in pricing section</option>
+        </select>
         <select className="input" value={sortBy} onChange={e => setSortBy(e.target.value)} style={{ maxWidth: 150 }}>
           <option value="order">Sort by order</option>
           <option value="name">Sort by name</option>
@@ -226,6 +253,7 @@ export default function TreatmentsClient({ initialTreatments }) {
                   {t.photos?.length > 0 && <span style={{ color: '#9B9390', font: '400 11px Inter,sans-serif', marginLeft: 8 }}>📷 {t.photos.length}</span>}
                   {t.show_on_homepage && <span style={{ background: '#FBF0DF', color: '#C4924A', padding: '2px 8px', borderRadius: 999, font: '600 9px Inter,sans-serif', marginLeft: 6 }}>🏠 Homepage</span>}
                   {t.is_featured && <span style={{ background: '#F0F4F2', color: '#3B5249', padding: '2px 8px', borderRadius: 999, font: '600 9px Inter,sans-serif', marginLeft: 6 }}>⭐ Featured</span>}
+                  {t.show_in_pricing && <span style={{ background: '#EAF2F1', color: '#1D6E62', padding: '2px 8px', borderRadius: 999, font: '600 9px Inter,sans-serif', marginLeft: 6 }}>💎 Pricing</span>}
                 </div>
                 <div style={{ font: '400 12px Inter,sans-serif', color: '#9B9390', marginTop: 2 }}>{TREATMENT_CATEGORIES[t.category] ?? t.category} · order {t.sort_order ?? 0}</div>
               </div>
@@ -249,7 +277,7 @@ export default function TreatmentsClient({ initialTreatments }) {
             </div>
 
             {editingId === t.id && (
-              <EditForm treatment={t} featuredCount={featuredCount} onSave={patch => handleSaveEdit(t, patch)} />
+              <EditForm treatment={t} featuredCount={featuredCount} pricingCount={pricingCount} onSave={patch => handleSaveEdit(t, patch)} />
             )}
           </div>
         ))}
@@ -258,7 +286,7 @@ export default function TreatmentsClient({ initialTreatments }) {
   )
 }
 
-function EditForm({ treatment, featuredCount = 0, onSave }) {
+function EditForm({ treatment, featuredCount = 0, pricingCount = 0, onSave }) {
   const [name, setName] = useState(treatment.name)
   const [description, setDescription] = useState(treatment.description ?? '')
   const [badge, setBadge] = useState(treatment.badge ?? '')
@@ -269,6 +297,7 @@ function EditForm({ treatment, featuredCount = 0, onSave }) {
   const [sortOrder, setSortOrder] = useState(treatment.sort_order ?? 0)
   const [showOnHomepage, setShowOnHomepage] = useState(treatment.show_on_homepage ?? false)
   const [isFeatured, setIsFeatured] = useState(treatment.is_featured ?? false)
+  const [showInPricing, setShowInPricing] = useState(treatment.show_in_pricing ?? false)
   const [saving, setSaving] = useState(false)
 
   const handleSave = async () => {
@@ -277,7 +306,7 @@ function EditForm({ treatment, featuredCount = 0, onSave }) {
     const priceList = pricesCsv.split(',').map(s => parseInt(s.trim(), 10))
     const prices = {}
     durations.forEach((d, i) => { if (priceList[i]) prices[String(d)] = priceList[i] })
-    await onSave({ name, description, badge: badge || null, category, duration_options: durations, prices, photos, sort_order: sortOrder, show_on_homepage: showOnHomepage, is_featured: isFeatured })
+    await onSave({ name, description, badge: badge || null, category, duration_options: durations, prices, photos, sort_order: sortOrder, show_on_homepage: showOnHomepage, is_featured: isFeatured, show_in_pricing: showInPricing })
     setSaving(false)
   }
 
@@ -313,6 +342,22 @@ function EditForm({ treatment, featuredCount = 0, onSave }) {
             {lockFeature && (
               <div style={{ font: '400 11px Inter,sans-serif', color: '#B8860B', marginTop: 4 }}>
                 Already {BOOKING_TOP_N} treatments featured — un-feature one first.
+              </div>
+            )}
+          </div>
+        )
+      })()}
+      {(() => {
+        const lockPricing = !treatment.show_in_pricing && pricingCount >= PRICING_SECTION_MAX
+        return (
+          <div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, font: '500 12px Inter,sans-serif', color: lockPricing ? '#B8B2AE' : '#1C1917', cursor: lockPricing ? 'not-allowed' : 'pointer' }}>
+              <input type="checkbox" checked={showInPricing} disabled={lockPricing} onChange={e => setShowInPricing(e.target.checked)} />
+              💎 Show in homepage Pricing section (packages/passes — max {PRICING_SECTION_MAX})
+            </label>
+            {lockPricing && (
+              <div style={{ font: '400 11px Inter,sans-serif', color: '#B8860B', marginTop: 4 }}>
+                Already {PRICING_SECTION_MAX} treatments shown there — remove one first.
               </div>
             )}
           </div>

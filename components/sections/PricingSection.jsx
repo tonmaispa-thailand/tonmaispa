@@ -1,8 +1,27 @@
 'use client'
 
 import { t } from '@/lib/i18n/t'
+import { TREATMENT_CATEGORIES } from '@/lib/display'
 
-export default function PricingSection({ settings = {}, dict = {} }) {
+// A ticked treatment's price: packages (the intended use of show_in_pricing)
+// have exactly one duration option, so this is normally a single flat price
+// — but a treatment with more than one tier still renders sensibly as
+// "From ฿X" rather than breaking the single-price card layout.
+// (Param named `treatment`, not `t` — this file also imports the `t()` i18n
+// helper, and shadowing it here risks a silent bug in a future edit.)
+function pricingCardPrice(treatment) {
+  const durations = treatment.duration_options ?? []
+  // Only durations with an actual matching price count — a duration_options
+  // entry with no corresponding `prices[String(d)]` (e.g. a CSV paste that
+  // set durations but not prices) must fall back to "no price", not to
+  // Math.min() of an empty array, which silently returns Infinity and would
+  // render "฿Infinity" on the live homepage.
+  const knownPrices = durations.map(d => treatment.prices?.[String(d)]).filter(Boolean)
+  if (knownPrices.length === 0) return { price: null, isFrom: false }
+  return { price: Math.min(...knownPrices), isFrom: durations.length > 1 }
+}
+
+export default function PricingSection({ settings = {}, dict = {}, treatments = [], lang = 'en' }) {
   const dayPass = settings['settings.day_pass_price']    ?? '200'
   const iceBath = settings['settings.ice_bath_price']    ?? '100'
   const wa      = settings['settings.whatsapp_number']   ?? '66822866058'
@@ -73,6 +92,53 @@ export default function PricingSection({ settings = {}, dict = {} }) {
               </a>
             </div>
           </div>
+
+          {/* Owner-picked packages/passes (show_in_pricing, capped at
+              PRICING_SECTION_MAX) — same card shell as the two static cards
+              above, so the section reads as one family of "simple, single-
+              price" offers rather than two different UIs bolted together. */}
+          {treatments.map((pkg, i) => {
+            const { price, isFrom } = pricingCardPrice(pkg)
+            // Package descriptions are written as an arrow-separated flow
+            // ("Thermal circuit → scrub → massage → coconut water") — split
+            // it into the same ✓-list style as the static cards above when
+            // it fits that shape; otherwise fall back to plain prose so an
+            // admin-entered treatment without that format never looks broken.
+            const steps = pkg.description?.includes('→') ? pkg.description.split('→').map(s => s.trim()).filter(Boolean) : null
+            return (
+              <div key={pkg.id} data-reveal style={{ opacity: 0, transform: 'translateY(28px)', transition: `opacity .8s ${0.2 + i * 0.1}s ease, transform .8s ${0.2 + i * 0.1}s ease`, border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, padding: 'clamp(28px,3vw,44px)', display: 'flex', flexDirection: 'column' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                  <div style={{ font: '600 11px Inter,sans-serif', letterSpacing: 3, textTransform: 'uppercase', color: '#C4924A' }}>{TREATMENT_CATEGORIES[pkg.category] ?? pkg.category}</div>
+                  {pkg.badge && <span style={{ background: '#8A6528', color: '#fff', padding: '3px 10px', borderRadius: 999, font: '600 9px Inter,sans-serif', letterSpacing: 1.5, textTransform: 'uppercase' }}>{pkg.badge}</span>}
+                </div>
+                {price != null && (
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, margin: '16px 0 0' }}>
+                    {isFrom && <span style={{ font: '400 16px Inter,sans-serif', color: 'rgba(255,255,255,0.5)' }}>From</span>}
+                    <span style={{ font: '400 58px/1 Cormorant Garamond,serif', color: '#fff' }}>฿{price}</span>
+                  </div>
+                )}
+                <div style={{ font: '400 22px Cormorant Garamond,serif', color: '#fff', margin: '4px 0 0' }}>{pkg.name}</div>
+                {steps ? (
+                  <ul style={{ listStyle: 'none', margin: '22px 0 0', padding: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {steps.map((step, si) => (
+                      <li key={si} style={{ display: 'flex', gap: 10, font: '400 14px/1.5 Inter,sans-serif', color: 'rgba(255,255,255,0.75)' }}>
+                        <span style={{ color: '#C4924A', flexShrink: 0 }}>✓</span>{step}
+                      </li>
+                    ))}
+                  </ul>
+                ) : pkg.description && (
+                  <p style={{ font: '400 14px/1.6 Inter,sans-serif', color: 'rgba(255,255,255,0.75)', margin: '22px 0 0' }}>{pkg.description}</p>
+                )}
+                <div style={{ marginTop: 'auto', paddingTop: 28 }}>
+                  <a href={pkg.slug ? `/${lang}/book?treatment=${pkg.slug}` : `/${lang}/book`}
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: 50, background: '#C4924A', color: '#fff', borderRadius: 2, font: '600 11px Inter,sans-serif', letterSpacing: '2.5px', textTransform: 'uppercase' }}
+                    onClick={() => { if (window.gtag) window.gtag('event', 'book_now_click', { method: 'pricing_package', treatment: pkg.name }) }}>
+                    {t(dict, 'home.pricing.bookNow')}
+                  </a>
+                </div>
+              </div>
+            )
+          })}
         </div>
 
         <p style={{ textAlign: 'center', font: '400 13px Inter,sans-serif', color: 'rgba(255,255,255,0.66)', marginTop: 28 }}>
