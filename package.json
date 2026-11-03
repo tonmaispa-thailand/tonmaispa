@@ -16,6 +16,7 @@
     "test:peaktimes": "node --import ./scripts/register-alias.mjs scripts/test-peak-times.mjs",
     "test:alarm-schema": "node --import ./scripts/register-alias.mjs scripts/test-booking-alarm-schema.mjs",
     "test:pricing-flag": "node --import ./scripts/register-alias.mjs scripts/test-show-in-pricing.mjs",
+    "test:refcode": "node --import ./scripts/register-alias.mjs scripts/test-booking-ref-code.mjs",
     "test:chatbot": "node scripts/test-chatbot.mjs",
     "test:hallucination": "node scripts/test-hallucination.mjs",
     "blog:image": "node --env-file=.env.local scripts/gen-blog-image.mjs"
