@@ -1,7 +1,9 @@
 // Robust E2E test of the booking engine ↔ availability ↔ roster linkage,
 // including the AI chat layer (draft/confirm/reschedule). Runs against the
 // real DB with isolated fixtures on far-future dates (2027-03-*) so nothing
-// collides with real bookings; everything created is deleted by exact ID.
+// collides with real bookings; everything created is deleted by exact ID in a
+// `finally` block (plus a ZZTEST sweep), so even a crash half-way through a
+// section never leaves fixtures behind in production.
 import fs from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -52,8 +54,10 @@ const D_BUFFER = '2027-03-31' // Wednesday (D_MAIN + 21d) — turnaround-buffer 
 const D_COVER  = '2027-04-14' // Wednesday — orphaned-booking (lost cover) detection
 
 // Real treatments (read-only)
+// Plain one-therapist, any-room, 60-min treatment. Looked up by slug: the old
+// hardcoded id pointed at a treatment removed in the 2026-11-03 catalogue reset.
 const { data: single } = await admin.from('spa_treatments')
-  .select('id, name, duration_options, therapists_required').eq('id', '2058b911-5063-44b5-a9ed-e766fb7750d9').maybeSingle()
+  .select('id, name, duration_options, therapists_required').eq('slug', 'thai-traditional-massage').maybeSingle()
 const { data: couples } = await admin.from('spa_treatments')
   .select('id, name, duration_options, therapists_required').eq('therapists_required', 2).limit(1).maybeSingle()
 const { data: wetTrt } = await admin.from('spa_treatments')
@@ -64,6 +68,13 @@ const { data: reflexTrt } = await admin.from('spa_treatments')
   .select('id, name, room_requirement, duration_options').eq('slug', 'foot-reflexology').maybeSingle()
 console.log(`Fixtures: single="${single?.name}" (req ${single?.therapists_required}), couples="${couples?.name}" (req ${couples?.therapists_required})`)
 console.log(`Room fixtures: wet="${wetTrt?.name}"(${wetTrt?.room_requirement}) couples="${couplesTrt?.name}"(${couplesTrt?.room_requirement}) reflex="${reflexTrt?.name}"(${reflexTrt?.room_requirement})`)
+
+// Sanity: the real treatments the fixtures hang off must exist (otherwise the
+// run would crash after creating therapists — abort before touching anything)
+if (!single || !couples || !wetTrt || !couplesTrt || !reflexTrt) {
+  console.error('ABORT: fixture treatments missing —', JSON.stringify({ single: !!single, couples: !!couples, wet: !!wetTrt, couplesRoom: !!couplesTrt, reflex: !!reflexTrt }))
+  process.exit(1)
+}
 
 // Sanity: no real bookings/shifts on fixture dates
 const FIXTURE_DATES = [D_MAIN, D_CLOSED, D_BLOCK, D_TODAY, D_RACE, D_RACE2, D_BUFFER, D_COVER, D_ADDON, D_ROOMS]
@@ -96,6 +107,104 @@ if (hasTurnaroundCol && origTurnaround !== 0) {
   console.log(`(neutralised live turnaround_min ${origTurnaround} → 0 for this run; will restore)`)
 }
 
+// ── Teardown ─────────────────────────────────────────────────────
+// Called from the `finally` below, so it runs even when a section throws
+// half-way. (The 2026-10-29 run died in K2 with the cleanup still inside the
+// try, and left 18 bookings, 3 therapists, shifts, quals and blocked_dates in
+// production.) Two layers:
+//   1. exact-id deletes of everything this run recorded in `cleanup`, in FK
+//      order (logs → threads → bookings → chat sessions → customers → roster)
+//   2. a ZZTEST sweep for anything this suite tags that slipped past the id
+//      lists (a row inserted right before a crash, or a customer / chat
+//      session / therapist left by a killed run — leftover bookings or shifts
+//      on the fixture dates still trip the preflight ABORT above, which runs
+//      before any sweep). Scoped to the ZZTEST tag / the suite's test phones /
+//      the fixture dates, so it cannot reach real data.
+// Returns the number of problems seen (a failed delete or select, or rows
+// still present afterwards) so the exit code can flag an incomplete teardown
+// instead of reporting green with fixtures left in production.
+const TEST_PHONES = ['+66900000001', '+66900000002', '+66900000009']
+async function cleanupFixtures() {
+  console.log('\n═ Cleanup')
+  let problems = 0
+  const del = async (label, fn) => {
+    try {
+      const { error } = await fn()
+      if (error) problems++
+      console.log(`  ${error ? '✗' : '✓'} ${label}${error ? ' — ' + error.message : ''}`)
+    } catch (e) {
+      problems++
+      console.log(`  ✗ ${label} — ${e?.message ?? e}`)
+    }
+  }
+  // Empty id lists skip the round-trip instead of sending `in.()`.
+  const delIn = (table, col, list) => list.length ? admin.from(table).delete().in(col, list) : Promise.resolve({})
+  // A failed select must not look like "nothing to sweep".
+  const selIds = async (table, build) => {
+    const { data, error } = await build(admin.from(table).select('id'))
+    if (error) { problems++; console.log(`  ✗ select ${table} — ${error.message}`) }
+    return (data ?? []).map(r => r.id)
+  }
+  const selIn = (table, col, list) => list.length ? selIds(table, q => q.in(col, list)) : Promise.resolve([])
+
+  // 1. exact ids recorded during the run
+  await del('booking_logs', () => delIn('booking_logs', 'booking_id', cleanup.bookings))
+  await del('conversation threads/messages', async () => {
+    const threadIds = await selIn('conversation_threads', 'web_session_id', cleanup.sessions)
+    await delIn('conversation_messages', 'thread_id', threadIds)
+    return delIn('conversation_threads', 'id', threadIds)
+  })
+  await del(`bookings (${cleanup.bookings.length})`, () => delIn('bookings', 'id', cleanup.bookings))
+  await del('chat_sessions', () => delIn('chat_sessions', 'session_id', cleanup.sessions))
+  await del('customers (test phones)', () => delIn('customers', 'primary_phone_e164', TEST_PHONES))
+  await del('blocked_dates', () => delIn('blocked_dates', 'id', cleanup.blocks))
+  await del('therapist_shifts', () => delIn('therapist_shifts', 'id', cleanup.shifts))
+  await del('therapist_treatments', () => delIn('therapist_treatments', 'therapist_id', cleanup.therapists))
+  await del(`therapists (${cleanup.therapists.length})`, () => delIn('therapists', 'id', cleanup.therapists))
+
+  // 2. ZZTEST sweep — belt and braces
+  const zzBookings   = await selIds('bookings',      q => q.ilike('guest_name', 'ZZTEST%').in('date', FIXTURE_DATES))
+  const zzCustomers  = [...new Set([
+    ...await selIds('customers', q => q.ilike('display_name', 'ZZTEST%')),
+    ...await selIds('customers', q => q.in('primary_phone_e164', TEST_PHONES)),
+  ])]
+  const zzSessions   = [...new Set([
+    ...await selIn('chat_sessions', 'customer_id', zzCustomers),
+    ...await selIds('chat_sessions', q => q.in('guest_phone', TEST_PHONES)),
+  ])]
+  const zzTherapists = await selIds('therapists',    q => q.ilike('name', 'ZZTEST%'))
+  const zzBlocks     = await selIds('blocked_dates', q => q.ilike('reason', 'ZZTEST%').in('date', FIXTURE_DATES))
+  const stray = zzBookings.length + zzCustomers.length + zzSessions.length + zzTherapists.length + zzBlocks.length
+  if (stray) {
+    console.log(`  sweep: ${zzBookings.length} bookings, ${zzCustomers.length} customers, ${zzSessions.length} chat_sessions, ${zzTherapists.length} therapists, ${zzBlocks.length} blocked_dates still tagged ZZTEST — removing`)
+    await del('sweep booking_logs', () => delIn('booking_logs', 'booking_id', zzBookings))
+    await del('sweep bookings', () => delIn('bookings', 'id', zzBookings))
+    await del('sweep conversation threads/messages', async () => {
+      const threadIds = await selIn('conversation_threads', 'customer_id', zzCustomers)
+      await delIn('conversation_messages', 'thread_id', threadIds)
+      return delIn('conversation_threads', 'id', threadIds)
+    })
+    // chat_sessions.customer_id has no ON DELETE rule → sessions must go before the customer
+    await del('sweep chat_sessions', () => delIn('chat_sessions', 'id', zzSessions))
+    await del('sweep customers', () => delIn('customers', 'id', zzCustomers))
+    await del('sweep blocked_dates', () => delIn('blocked_dates', 'id', zzBlocks))
+    // shifts / quals / per-therapist blocks cascade from the therapist row
+    await del('sweep therapists', () => delIn('therapists', 'id', zzTherapists))
+  } else {
+    console.log('  sweep: nothing tagged ZZTEST left behind')
+  }
+
+  // Verify nothing remains on fixture dates / under the ZZTEST tag
+  const { data: leftover, error: leftErr } = await admin.from('bookings').select('id').in('date', FIXTURE_DATES)
+  const { data: leftTher, error: therErr } = await admin.from('therapists').select('id').ilike('name', 'ZZTEST%')
+  if (leftErr || therErr) { problems++; console.log(`  ✗ leftover check — ${(leftErr ?? therErr).message}`) }
+  if ((leftover?.length ?? 0) + (leftTher?.length ?? 0) > 0) problems++
+  console.log(`  leftover: ${leftover?.length ?? 0} bookings on fixture dates, ${leftTher?.length ?? 0} ZZTEST therapists`)
+  return problems
+}
+
+let crashed = null
+let teardownProblems = 0
 try {
 
 // ── Build fixtures ───────────────────────────────────────────────
@@ -146,9 +255,9 @@ await makeShift(T2, D_BLOCK, '10:00', '20:00')
 // D_CLOSED roster: T1 on shift (contradictory data — tests closure precedence)
 await makeShift(T1, D_CLOSED, '10:00', '20:00')
 
-const { data: blockRow } = await admin.from('blocked_dates').insert({ date: D_BLOCK, therapist_id: T1 }).select('id').single()
+const { data: blockRow } = await admin.from('blocked_dates').insert({ date: D_BLOCK, therapist_id: T1, reason: 'ZZTEST fixture' }).select('id').single()
 cleanup.blocks.push(blockRow.id)
-const { data: closureRow } = await admin.from('blocked_dates').insert({ date: D_CLOSED, therapist_id: null }).select('id').single()
+const { data: closureRow } = await admin.from('blocked_dates').insert({ date: D_CLOSED, therapist_id: null, reason: 'ZZTEST fixture' }).select('id').single()
 cleanup.blocks.push(closureRow.id)
 
 const ALL = [T1, T2, T3]
@@ -921,36 +1030,21 @@ check('P20 UPDATE to a wet treatment re-stamps room_requirement=wet',
 
 } // end section P guard
 
-// ══ Cleanup ══════════════════════════════════════════════════════
-console.log('\n═ Cleanup')
-const del = async (label, fn) => { const { error } = await fn(); console.log(`  ${error ? '✗' : '✓'} ${label}${error ? ' — ' + error.message : ''}`) }
-await del('booking_logs', () => admin.from('booking_logs').delete().in('booking_id', cleanup.bookings))
-await del('conversation threads/messages', async () => {
-  const { data: threads } = await admin.from('conversation_threads').select('id').in('web_session_id', cleanup.sessions)
-  const ids = (threads ?? []).map(t => t.id)
-  if (ids.length) {
-    await admin.from('conversation_messages').delete().in('thread_id', ids)
-    return admin.from('conversation_threads').delete().in('id', ids)
-  }
-  return {}
-})
-await del(`bookings (${cleanup.bookings.length})`, () => admin.from('bookings').delete().in('id', cleanup.bookings))
-await del('chat_sessions', () => admin.from('chat_sessions').delete().in('session_id', cleanup.sessions))
-await del('customers (test phones)', () => admin.from('customers').delete().in('primary_phone_e164', ['+66900000001', '+66900000002', '+66900000009']))
-await del('blocked_dates', () => admin.from('blocked_dates').delete().in('id', cleanup.blocks))
-await del('therapist_shifts', () => admin.from('therapist_shifts').delete().in('id', cleanup.shifts))
-await del('therapist_treatments', () => admin.from('therapist_treatments').delete().in('therapist_id', cleanup.therapists))
-await del('therapists', () => admin.from('therapists').delete().in('id', cleanup.therapists))
-
-// Verify nothing remains on fixture dates
-const { data: leftover } = await admin.from('bookings').select('id').in('date', FIXTURE_DATES)
-console.log(`  leftover rows on fixture dates: ${leftover?.length ?? 0}`)
-
-console.log(`\n════ RESULT: ${pass} passed, ${fail} failed ════`)
-if (failures.length) console.log('Failed:', failures.join(' | '))
-
+} catch (err) {
+  crashed = err
 } finally {
-  // Always put the live buffer back, even if a section threw or the run failed.
-  await restoreTurnaround()
+  // Teardown ALWAYS runs — a throw in any section above lands here first.
+  // Each step is guarded so a teardown failure can never mask the original error.
+  try { teardownProblems = await cleanupFixtures() } catch (e) { teardownProblems++; console.error('  cleanup failed:', e?.message ?? e) }
+  try { await restoreTurnaround() } catch (e) { teardownProblems++; console.error('  restoreTurnaround failed:', e?.message ?? e) }
 }
-process.exit(fail > 0 ? 1 : 0)
+
+console.log(`\n════ RESULT: ${pass} passed, ${fail} failed${crashed ? ' — RUN CRASHED' : ''}${teardownProblems ? ' — TEARDOWN INCOMPLETE' : ''} ════`)
+if (failures.length) console.log('Failed:', failures.join(' | '))
+if (teardownProblems) console.error(`\nTeardown reported ${teardownProblems} problem(s) — fixtures or the live turnaround setting may remain changed in production; see the ✗ lines above.`)
+if (crashed) {
+  console.error(`\nAborted by an uncaught error (teardown ran above${teardownProblems ? ', with problems' : ''}):`)
+  console.error(crashed)
+  process.exit(1)
+}
+process.exit(fail > 0 || teardownProblems > 0 ? 1 : 0)
