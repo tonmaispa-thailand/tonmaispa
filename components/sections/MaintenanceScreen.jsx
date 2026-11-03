@@ -1,42 +1,49 @@
 // Shown on every public page while settings.maintenance_mode = 'true'.
 //
-// Deliberately a dead end with exactly ONE way out: WhatsApp. No booking form,
-// no Line, no phone, no email, no chat bubble — if the spa is in maintenance,
-// every other channel is a promise it might not keep. The dashboard and /login
-// live outside /[lang], so staff can always get in and switch it back off.
+// Deliberately a dead end with exactly TWO ways out: WhatsApp, and the spa's
+// current live website (SITE_LINK). No booking form, no Line, no phone, no
+// email, no chat bubble — while this build is in maintenance, every other
+// channel is a promise it might not keep. The dashboard and /login live
+// outside /[lang], so staff can always get in and switch it back off.
 //
 // Copy is inlined per locale rather than added to the i18n dictionaries: it is
-// four short strings that must render even if a dictionary fails to load, and
+// five short strings that must render even if a dictionary fails to load, and
 // this screen is exactly the moment you cannot afford a second failure.
+
+// Where the "visit our website" link goes: the spa's live site on its real
+// domain. Hardcoded on purpose — NEXT_PUBLIC_SITE_URL describes THIS build and
+// would point straight back at this holding page once the domain is cut over.
+const SITE_LINK  = 'https://www.tonmaispa.com/'
+const SITE_LABEL = 'www.tonmaispa.com'
 
 const COPY = {
   en: {
-    eyebrow: 'Temporarily closed',
     heading: 'We are just taking a moment.',
     body: 'Our website is briefly unavailable while we make some improvements. The spa team is still here — message us on WhatsApp and we will look after you personally.',
     cta: 'Message us on WhatsApp',
     note: 'We usually reply within a few minutes.',
+    site: 'Visit',
   },
   th: {
-    eyebrow: 'ปิดปรับปรุงชั่วคราว',
     heading: 'เราขอเวลาสักครู่',
     body: 'เว็บไซต์ของเราปิดปรับปรุงชั่วคราว แต่ทีมงานยังอยู่ครบ ทักมาทาง WhatsApp ได้เลย เราดูแลคุณเป็นการส่วนตัว',
     cta: 'ทักเราทาง WhatsApp',
     note: 'เรามักตอบกลับภายในไม่กี่นาที',
+    site: 'ไปที่',
   },
   ru: {
-    eyebrow: 'Временно закрыто',
     heading: 'Нам нужна всего минута.',
     body: 'Наш сайт временно недоступен — мы вносим улучшения. Команда спа на месте: напишите нам в WhatsApp, и мы позаботимся о вас лично.',
     cta: 'Написать в WhatsApp',
     note: 'Обычно отвечаем в течение нескольких минут.',
+    site: 'Перейти на',
   },
   zh: {
-    eyebrow: '暂时关闭',
     heading: '我们稍作调整，很快回来。',
     body: '网站正在进行升级，暂时无法访问。水疗团队仍在为您服务 — 通过 WhatsApp 联系我们，我们将亲自为您安排。',
     cta: '通过 WhatsApp 联系我们',
     note: '我们通常在几分钟内回复。',
+    site: '访问',
   },
 }
 
@@ -61,18 +68,6 @@ export default function MaintenanceScreen({ lang = 'en', whatsapp = '66822866058
       <div style={{ maxWidth: 520, width: '100%' }}>
         <div style={{ font: '400 clamp(26px, 4vw, 34px) Cormorant Garamond,serif', letterSpacing: 0.5 }}>
           Ton Mai Spa
-        </div>
-
-        <div
-          style={{
-            font: '600 10px Inter,sans-serif',
-            letterSpacing: 2,
-            textTransform: 'uppercase',
-            color: '#C4924A',
-            marginTop: 6,
-          }}
-        >
-          {t.eyebrow}
         </div>
 
         <h1
@@ -132,6 +127,30 @@ export default function MaintenanceScreen({ lang = 'en', whatsapp = '66822866058
         >
           {t.note}
         </p>
+
+        {/* Secondary way out: the spa's live website on its real domain. */}
+        <div style={{ marginTop: 28 }}>
+          <a
+            href={SITE_LINK}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+              color: '#FAF6F0',
+              textDecoration: 'none',
+              font: '500 14px Inter,sans-serif',
+              padding: '12px 24px',
+              borderRadius: 999,
+              border: '1px solid rgba(250,246,240,0.4)',
+            }}
+          >
+            {t.site} {SITE_LABEL}
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M5 12h14M13 6l6 6-6 6" />
+            </svg>
+          </a>
+        </div>
       </div>
     </main>
   )
