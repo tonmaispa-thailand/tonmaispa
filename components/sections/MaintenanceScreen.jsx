@@ -11,8 +11,11 @@
 // this screen is exactly the moment you cannot afford a second failure.
 
 // Where the "visit our website" link goes: the spa's live site on its real
-// domain. Hardcoded on purpose — NEXT_PUBLIC_SITE_URL describes THIS build and
-// would point straight back at this holding page once the domain is cut over.
+// domain, which the old (Wix) site still serves while this build is held in
+// maintenance. Hardcoded on purpose — NEXT_PUBLIC_SITE_URL is the address of
+// THIS deployment, i.e. right now it resolves to this very holding page.
+// NOTE: once the domain is cut over to this build, both addresses are the same
+// page and this link becomes a loop back to itself — remove it at cut-over.
 const SITE_LINK  = 'https://www.tonmaispa.com/'
 const SITE_LABEL = 'www.tonmaispa.com'
 
