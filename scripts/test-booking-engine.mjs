@@ -3,7 +3,9 @@
 // real DB with isolated fixtures on far-future dates (2027-03-*) so nothing
 // collides with real bookings; everything created is deleted by exact ID in a
 // `finally` block (plus a ZZTEST sweep), so even a crash half-way through a
-// section never leaves fixtures behind in production.
+// section never leaves fixtures behind in production. The same sweep runs
+// before the preflight, so a run that was killed outright (no finally) is
+// cleaned up by the next run instead of blocking it.
 import fs from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -76,14 +78,115 @@ if (!single || !couples || !wetTrt || !couplesTrt || !reflexTrt) {
   process.exit(1)
 }
 
-// Sanity: no real bookings/shifts on fixture dates
 const FIXTURE_DATES = [D_MAIN, D_CLOSED, D_BLOCK, D_TODAY, D_RACE, D_RACE2, D_BUFFER, D_COVER, D_ADDON, D_ROOMS]
-const { data: preExisting } = await admin.from('bookings').select('id').in('date', FIXTURE_DATES)
-const { data: preShifts } = await admin.from('therapist_shifts').select('id').in('date', FIXTURE_DATES)
-if (preExisting?.length || preShifts?.length) {
-  console.error('ABORT: fixture dates are not clean —', preExisting?.length, 'bookings,', preShifts?.length, 'shifts already exist there')
+
+// ── ZZTEST sweep (shared by the preflight below and the teardown) ─
+// Removes anything this suite tags that is not covered by the current run's
+// id lists: a row inserted right before a crash, or everything left by a run
+// that was killed outright (Ctrl-C / SIGKILL — no finally runs then). Scoped
+// to the ZZTEST tag / the suite's test phones / the fixture dates, so it
+// cannot reach real data. `teardownKit()` carries the delete/select helpers
+// and a counter of problems seen (a failed delete or select).
+const TEST_PHONES = ['+66900000001', '+66900000002', '+66900000009']
+function teardownKit() {
+  const kit = { problems: 0 }
+  kit.del = async (label, fn) => {
+    try {
+      const { error } = await fn()
+      if (error) kit.problems++
+      console.log(`  ${error ? '✗' : '✓'} ${label}${error ? ' — ' + error.message : ''}`)
+    } catch (e) {
+      kit.problems++
+      console.log(`  ✗ ${label} — ${e?.message ?? e}`)
+    }
+  }
+  // Empty id lists skip the round-trip instead of sending `in.()`.
+  kit.delIn = (table, col, list) => list.length ? admin.from(table).delete().in(col, list) : Promise.resolve({})
+  // A failed select must not look like "nothing to sweep".
+  kit.selIds = async (table, build) => {
+    const { data, error } = await build(admin.from(table).select('id'))
+    if (error) { kit.problems++; console.log(`  ✗ select ${table} — ${error.message}`) }
+    return (data ?? []).map(r => r.id)
+  }
+  kit.selIn = (table, col, list) => list.length ? kit.selIds(table, q => q.in(col, list)) : Promise.resolve([])
+  return kit
+}
+async function sweepZZTEST(kit) {
+  const { del, delIn, selIds, selIn } = kit
+  const zzBookings = await selIds('bookings', q => q.ilike('guest_name', 'ZZTEST%').in('date', FIXTURE_DATES))
+  // Chat sessions stamped on those bookings (confirm / reschedule flows) carry
+  // no ZZTEST tag of their own — read them before the bookings go.
+  let bkSessions = []
+  if (zzBookings.length) {
+    const { data, error } = await admin.from('bookings').select('chat_session_id').in('id', zzBookings).not('chat_session_id', 'is', null)
+    if (error) { kit.problems++; console.log(`  ✗ select bookings.chat_session_id — ${error.message}`) }
+    bkSessions = [...new Set((data ?? []).map(r => r.chat_session_id))]
+  }
+  const zzCustomers = [...new Set([
+    ...await selIds('customers', q => q.ilike('display_name', 'ZZTEST%')),
+    ...await selIds('customers', q => q.in('primary_phone_e164', TEST_PHONES)),
+  ])]
+  const zzSessions = [...new Set([
+    ...await selIn('chat_sessions', 'customer_id', zzCustomers),
+    ...await selIds('chat_sessions', q => q.in('guest_phone', TEST_PHONES)),
+    ...await selIds('chat_sessions', q => q.ilike('guest_name', 'ZZTEST%')),
+    ...await selIn('chat_sessions', 'session_id', bkSessions),
+  ])]
+  const zzThreads = [...new Set([
+    ...await selIn('conversation_threads', 'customer_id', zzCustomers),
+    ...await selIn('conversation_threads', 'web_session_id', bkSessions),
+  ])]
+  const zzTherapists = await selIds('therapists', q => q.ilike('name', 'ZZTEST%'))
+  const zzBlocks = await selIds('blocked_dates', q => q.ilike('reason', 'ZZTEST%').in('date', FIXTURE_DATES))
+  const stray = zzBookings.length + zzCustomers.length + zzSessions.length + zzThreads.length + zzTherapists.length + zzBlocks.length
+  if (!stray) {
+    console.log('  sweep: nothing tagged ZZTEST left behind')
+    return 0
+  }
+  console.log(`  sweep: ${zzBookings.length} bookings, ${zzCustomers.length} customers, ${zzSessions.length} chat_sessions, ${zzThreads.length} threads, ${zzTherapists.length} therapists, ${zzBlocks.length} blocked_dates tagged ZZTEST — removing`)
+  await del('sweep booking_logs', () => delIn('booking_logs', 'booking_id', zzBookings))
+  await del('sweep bookings', () => delIn('bookings', 'id', zzBookings))
+  await del('sweep conversation threads/messages', async () => {
+    await delIn('conversation_messages', 'thread_id', zzThreads)
+    return delIn('conversation_threads', 'id', zzThreads)
+  })
+  // chat_sessions.customer_id has no ON DELETE rule → sessions must go before the customer
+  await del('sweep chat_sessions', () => delIn('chat_sessions', 'id', zzSessions))
+  await del('sweep customers', () => delIn('customers', 'id', zzCustomers))
+  await del('sweep blocked_dates', () => delIn('blocked_dates', 'id', zzBlocks))
+  // shifts / quals / per-therapist blocks cascade from the therapist row
+  await del('sweep therapists', () => delIn('therapists', 'id', zzTherapists))
+  return stray
+}
+async function fixtureDatesInUse() {
+  const out = {}
+  for (const table of ['bookings', 'therapist_shifts', 'blocked_dates']) {
+    const { count, error, status } = await admin.from(table).select('id', { count: 'exact', head: true }).in('date', FIXTURE_DATES)
+    // A HEAD response has no body, so a failed count arrives with an empty
+    // message — fall back to the HTTP status so the ABORT line says something.
+    out[table] = error ? `ERR ${error.message || `HTTP ${status}`}` : (count ?? 0)
+  }
+  out.clean = Object.values(out).every(v => v === 0)
+  return out
+}
+
+// Preflight: the fixture dates must hold nothing but ours. Sweep first so a
+// run that was killed half-way self-heals instead of blocking every later run;
+// abort only if something that is NOT ours is still there afterwards (or the
+// sweep itself hit errors — nothing has been created yet, so aborting is free).
+console.log('\n═ Preflight')
+const preKit = teardownKit()
+await sweepZZTEST(preKit)
+const inUse = await fixtureDatesInUse()
+if (!inUse.clean) {
+  console.error('ABORT: fixture dates hold rows that are not ours —', JSON.stringify(inUse))
   process.exit(1)
 }
+if (preKit.problems) {
+  console.error(`ABORT: pre-sweep hit ${preKit.problems} problem(s) — see the ✗ lines above`)
+  process.exit(1)
+}
+console.log('  fixture dates clean')
 
 // Neutralise the live turnaround buffer for the duration of these deterministic
 // tests. Sections A–L/N assume back-to-back bookings (buffer = 0); the buffer
@@ -114,38 +217,15 @@ if (hasTurnaroundCol && origTurnaround !== 0) {
 // production.) Two layers:
 //   1. exact-id deletes of everything this run recorded in `cleanup`, in FK
 //      order (logs → threads → bookings → chat sessions → customers → roster)
-//   2. a ZZTEST sweep for anything this suite tags that slipped past the id
-//      lists (a row inserted right before a crash, or a customer / chat
-//      session / therapist left by a killed run — leftover bookings or shifts
-//      on the fixture dates still trip the preflight ABORT above, which runs
-//      before any sweep). Scoped to the ZZTEST tag / the suite's test phones /
-//      the fixture dates, so it cannot reach real data.
+//   2. the shared ZZTEST sweep above, for anything that slipped past the id
+//      lists (a row inserted right before a crash).
 // Returns the number of problems seen (a failed delete or select, or rows
 // still present afterwards) so the exit code can flag an incomplete teardown
 // instead of reporting green with fixtures left in production.
-const TEST_PHONES = ['+66900000001', '+66900000002', '+66900000009']
 async function cleanupFixtures() {
   console.log('\n═ Cleanup')
-  let problems = 0
-  const del = async (label, fn) => {
-    try {
-      const { error } = await fn()
-      if (error) problems++
-      console.log(`  ${error ? '✗' : '✓'} ${label}${error ? ' — ' + error.message : ''}`)
-    } catch (e) {
-      problems++
-      console.log(`  ✗ ${label} — ${e?.message ?? e}`)
-    }
-  }
-  // Empty id lists skip the round-trip instead of sending `in.()`.
-  const delIn = (table, col, list) => list.length ? admin.from(table).delete().in(col, list) : Promise.resolve({})
-  // A failed select must not look like "nothing to sweep".
-  const selIds = async (table, build) => {
-    const { data, error } = await build(admin.from(table).select('id'))
-    if (error) { problems++; console.log(`  ✗ select ${table} — ${error.message}`) }
-    return (data ?? []).map(r => r.id)
-  }
-  const selIn = (table, col, list) => list.length ? selIds(table, q => q.in(col, list)) : Promise.resolve([])
+  const kit = teardownKit()
+  const { del, delIn, selIn } = kit
 
   // 1. exact ids recorded during the run
   await del('booking_logs', () => delIn('booking_logs', 'booking_id', cleanup.bookings))
@@ -163,44 +243,15 @@ async function cleanupFixtures() {
   await del(`therapists (${cleanup.therapists.length})`, () => delIn('therapists', 'id', cleanup.therapists))
 
   // 2. ZZTEST sweep — belt and braces
-  const zzBookings   = await selIds('bookings',      q => q.ilike('guest_name', 'ZZTEST%').in('date', FIXTURE_DATES))
-  const zzCustomers  = [...new Set([
-    ...await selIds('customers', q => q.ilike('display_name', 'ZZTEST%')),
-    ...await selIds('customers', q => q.in('primary_phone_e164', TEST_PHONES)),
-  ])]
-  const zzSessions   = [...new Set([
-    ...await selIn('chat_sessions', 'customer_id', zzCustomers),
-    ...await selIds('chat_sessions', q => q.in('guest_phone', TEST_PHONES)),
-  ])]
-  const zzTherapists = await selIds('therapists',    q => q.ilike('name', 'ZZTEST%'))
-  const zzBlocks     = await selIds('blocked_dates', q => q.ilike('reason', 'ZZTEST%').in('date', FIXTURE_DATES))
-  const stray = zzBookings.length + zzCustomers.length + zzSessions.length + zzTherapists.length + zzBlocks.length
-  if (stray) {
-    console.log(`  sweep: ${zzBookings.length} bookings, ${zzCustomers.length} customers, ${zzSessions.length} chat_sessions, ${zzTherapists.length} therapists, ${zzBlocks.length} blocked_dates still tagged ZZTEST — removing`)
-    await del('sweep booking_logs', () => delIn('booking_logs', 'booking_id', zzBookings))
-    await del('sweep bookings', () => delIn('bookings', 'id', zzBookings))
-    await del('sweep conversation threads/messages', async () => {
-      const threadIds = await selIn('conversation_threads', 'customer_id', zzCustomers)
-      await delIn('conversation_messages', 'thread_id', threadIds)
-      return delIn('conversation_threads', 'id', threadIds)
-    })
-    // chat_sessions.customer_id has no ON DELETE rule → sessions must go before the customer
-    await del('sweep chat_sessions', () => delIn('chat_sessions', 'id', zzSessions))
-    await del('sweep customers', () => delIn('customers', 'id', zzCustomers))
-    await del('sweep blocked_dates', () => delIn('blocked_dates', 'id', zzBlocks))
-    // shifts / quals / per-therapist blocks cascade from the therapist row
-    await del('sweep therapists', () => delIn('therapists', 'id', zzTherapists))
-  } else {
-    console.log('  sweep: nothing tagged ZZTEST left behind')
-  }
+  await sweepZZTEST(kit)
 
   // Verify nothing remains on fixture dates / under the ZZTEST tag
   const { data: leftover, error: leftErr } = await admin.from('bookings').select('id').in('date', FIXTURE_DATES)
   const { data: leftTher, error: therErr } = await admin.from('therapists').select('id').ilike('name', 'ZZTEST%')
-  if (leftErr || therErr) { problems++; console.log(`  ✗ leftover check — ${(leftErr ?? therErr).message}`) }
-  if ((leftover?.length ?? 0) + (leftTher?.length ?? 0) > 0) problems++
+  if (leftErr || therErr) { kit.problems++; console.log(`  ✗ leftover check — ${(leftErr ?? therErr).message}`) }
+  if ((leftover?.length ?? 0) + (leftTher?.length ?? 0) > 0) kit.problems++
   console.log(`  leftover: ${leftover?.length ?? 0} bookings on fixture dates, ${leftTher?.length ?? 0} ZZTEST therapists`)
-  return problems
+  return kit.problems
 }
 
 let crashed = null
