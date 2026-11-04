@@ -3,6 +3,7 @@ import Link from 'next/link'
 import TrackedLink from '@/components/ui/TrackedLink'
 import TreatmentPhotosButton from '@/components/ui/TreatmentPhotosButton'
 import { TREATMENT_CATEGORIES } from '@/lib/display'
+import { t as translate } from '@/lib/i18n/t'
 
 const DEFAULT_HEADING    = 'Every treatment, unhurried.'
 const DEFAULT_SUBHEADING = 'Choose from traditional Thai massage, facials, scrubs and specialty treatments — all performed by skilled Thai therapists in an open garden setting.'
@@ -18,7 +19,16 @@ function getStartingPrice(t) {
   return firstDuration ? t.prices?.[String(firstDuration)] ?? null : null
 }
 
-export default function TreatmentsSection({ treatments = [], settings = {}, lang = 'en' }) {
+// Duration chips (60 min · 90 min …). Real rows carry duration_options; the
+// placeholder set stores prices as [{duration, thb}]. 0 = untimed item (day
+// pass, add-on) → no chips.
+function getDurations(t) {
+  const raw = Array.isArray(t.prices) ? t.prices.map(p => p?.duration) : (t.duration_options ?? [])
+  return [...new Set(raw.map(Number).filter(n => Number.isFinite(n) && n > 0))].sort((a, b) => a - b)
+}
+
+export default function TreatmentsSection({ treatments = [], settings = {}, lang = 'en', dict = {} }) {
+  const minLabel = translate(dict, 'spaMenu.min')
   const heading    = settings['settings.homepage_services_heading']    || DEFAULT_HEADING
   const subheading = settings['settings.homepage_services_subheading'] || DEFAULT_SUBHEADING
   const rawCount   = parseInt(settings['settings.homepage_services_count'], 10)
@@ -58,6 +68,7 @@ export default function TreatmentsSection({ treatments = [], settings = {}, lang
           {items.map((t, i) => {
             const img   = t.cloudinary_url ?? t.photos?.[0] ?? t.img ?? FALLBACK_IMAGE
             const price = getStartingPrice(t)
+            const durations = getDurations(t)
             const badge = t.badge
             return (
               <div key={t.id ?? t.name} data-reveal style={{ opacity: 0, transform: 'translateY(28px)', transition: `opacity .8s ${Math.min(i,5)*0.1}s ease, transform .8s ${Math.min(i,5)*0.1}s ease`, background: '#fff', borderRadius: 8, overflow: 'hidden', boxShadow: '0 4px 24px rgba(28,25,23,0.07)' }}>
@@ -71,6 +82,13 @@ export default function TreatmentsSection({ treatments = [], settings = {}, lang
                     {t.slug ? <Link href={`/${lang}/spa-menu/${t.slug}`} style={{ color: 'inherit', textDecoration: 'none' }}>{t.name}</Link> : t.name}
                   </h3>
                   <p style={{ font: '400 14px/1.65 Inter,sans-serif', color: '#6B6663', margin: '10px 0 0' }}>{t.description}</p>
+                  {durations.length > 0 && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 14 }}>
+                      {durations.map(d => (
+                        <span key={d} style={{ padding: '5px 12px', border: '1px solid #D9D4CF', borderRadius: 999, font: '500 12px Inter,sans-serif', color: '#3B5249', whiteSpace: 'nowrap' }}>{d} {minLabel}</span>
+                      ))}
+                    </div>
+                  )}
                   {t.photos?.length > 0 && (
                     <div style={{ marginTop: 10 }}>
                       <TreatmentPhotosButton photos={t.photos} treatmentName={t.name} />

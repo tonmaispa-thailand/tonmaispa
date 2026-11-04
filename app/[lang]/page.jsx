@@ -7,6 +7,7 @@
 
 import Nav                       from '@/components/layout/Nav'
 import Footer                    from '@/components/layout/Footer'
+import { pickHeroSlides, pickAboutImage } from '@/lib/gallery-hero'
 import HeroSection               from '@/components/sections/HeroSection'
 import AboutSection              from '@/components/sections/AboutSection'
 import TreatmentsSection         from '@/components/sections/TreatmentsSection'
@@ -54,7 +55,7 @@ export async function generateMetadata({ params }) {
 async function getData(lang) {
   const admin = createSupabaseAdminClient()
 
-  const [treatmentsRes, pricingTreatmentsRes, settingsRes, galleryRes, facilitiesRes] = await Promise.all([
+  const [treatmentsRes, pricingTreatmentsRes, settingsRes, galleryRes, facilitiesRes, heroAboutRes] = await Promise.all([
     admin.from('spa_treatments')
       .select('id, name, slug, description, category, duration_options, prices, badge, photos')
       .eq('is_active', true)
@@ -87,6 +88,14 @@ async function getData(lang) {
       .select('id, image_url, title, body')
       .eq('is_active', true)
       .order('sort_order'),
+
+    // Owner-picked hero slideshow (≤10, ordered) + About photo, chosen on the
+    // dashboard Gallery page (migration 039). Independent of `featured`.
+    // Before 039 is applied the columns don't exist → error → data is null →
+    // the components fall back to their built-in photos.
+    admin.from('gallery_photos')
+      .select('id, cloudinary_url, alt_text, hero_order, is_about, about_align')
+      .or('hero_order.not.is.null,is_about.eq.true'),
   ])
 
   let settings = Object.fromEntries(
@@ -96,6 +105,9 @@ async function getData(lang) {
   let pricingTreatments = pricingTreatmentsRes.data ?? []
   let gallery    = galleryRes.data ?? []
   let facilities = facilitiesRes.data ?? []
+  const heroAboutRows = heroAboutRes.data ?? []
+  const heroSlides = pickHeroSlides(heroAboutRows)
+  const aboutImage = pickAboutImage(heroAboutRows)
 
   if (lang !== 'en') {
     treatments        = await translateRows('spa_treatments', treatments, ['name', 'description', 'badge'], lang)
@@ -120,12 +132,12 @@ async function getData(lang) {
     }
   }
 
-  return { treatments, pricingTreatments, settings, gallery, facilities }
+  return { treatments, pricingTreatments, settings, gallery, facilities, heroSlides, aboutImage }
 }
 
 export default async function HomePage({ params }) {
   const { lang } = await params
-  const [{ treatments, pricingTreatments, settings, gallery, facilities }, dict] = await Promise.all([
+  const [{ treatments, pricingTreatments, settings, gallery, facilities, heroSlides, aboutImage }, dict] = await Promise.all([
     getData(lang),
     getDictionary(lang),
   ])
@@ -151,9 +163,9 @@ export default async function HomePage({ params }) {
       <Nav lang={lang} dict={dict} />
 
       <main id="top">
-        <HeroSection settings={settings} dict={dict} />
-        <AboutSection dict={dict} />
-        <TreatmentsSection treatments={treatments} settings={settings} lang={lang} />
+        <HeroSection settings={settings} dict={dict} slides={heroSlides} />
+        <AboutSection dict={dict} image={aboutImage} />
+        <TreatmentsSection treatments={treatments} settings={settings} lang={lang} dict={dict} />
         <ThermoSection dict={dict} />
         <FacilitiesSection facilities={facilities} settings={settings} />
         <PricingSection settings={settings} dict={dict} treatments={pricingTreatments} lang={lang} />

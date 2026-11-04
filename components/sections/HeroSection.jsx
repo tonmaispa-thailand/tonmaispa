@@ -4,7 +4,8 @@ import { useState, useEffect, useRef } from 'react'
 import Image from 'next/image'
 import { t } from '@/lib/i18n/t'
 
-const SLIDES = [
+// Built-in fallback — used until the owner picks hero photos in Dashboard → Gallery.
+const DEFAULT_SLIDES = [
   { src: '/assets/slide-pool-22.jpg',    alt: 'Sunlit tropical pool surrounded by lush garden at Ton Mai Spa' },
   { src: '/assets/slide-restaurant.jpg', alt: 'Open-air restaurant beneath the great tree at Ton Mai Spa' },
   { src: '/assets/slide-pool-12.jpg',    alt: 'Pool lounge with blue sunbeds and palms' },
@@ -15,7 +16,12 @@ const SLIDES = [
   { src: '/assets/slide-sauna.jpg',      alt: 'Dry sauna warm teak interior at Ton Mai Spa' },
 ]
 
-export default function HeroSection({ settings = {}, dict = {} }) {
+export default function HeroSection({ settings = {}, dict = {}, slides = [] }) {
+  const SLIDES = slides.length > 0 ? slides : DEFAULT_SLIDES
+  // The interval/timeout callbacks below are created once (first render); read the slide
+  // count through a ref so they never use a stale length if the slides prop changes.
+  const countRef = useRef(SLIDES.length)
+  countRef.current = SLIDES.length
   const rating      = settings['settings.google_rating']       ?? '4.8'
   const reviewCount = settings['settings.google_review_count'] ?? '369'
   const dayPass     = settings['settings.day_pass_price']      ?? '200'
@@ -31,10 +37,12 @@ export default function HeroSection({ settings = {}, dict = {} }) {
 
   const startTimer = () => {
     clearInterval(timerRef.current)
+    if (countRef.current < 2) return // a single photo has nothing to rotate to
     timerRef.current = setInterval(() => {
+      const n = countRef.current
       setSlideIdx(i => {
-        const next = (i + 1) % SLIDES.length
-        setLoadedIndices(prev => new Set(prev).add(next).add((next + 1) % SLIDES.length))
+        const next = (i + 1) % n
+        setLoadedIndices(prev => new Set(prev).add(next).add((next + 1) % n))
         return next
       })
     }, 6000)
@@ -44,14 +52,14 @@ export default function HeroSection({ settings = {}, dict = {} }) {
     startTimer()
     // Pre-mount the next slide well after first paint, well before the 6s fade.
     const preloadNext = setTimeout(() => {
-      setLoadedIndices(prev => new Set(prev).add(1 % SLIDES.length))
+      setLoadedIndices(prev => new Set(prev).add(1 % countRef.current))
     }, 3000)
     return () => { clearInterval(timerRef.current); clearTimeout(preloadNext) }
   }, [])
 
   const goToSlide = (i) => {
     setSlideIdx(i)
-    setLoadedIndices(prev => new Set(prev).add(i).add((i + 1) % SLIDES.length))
+    setLoadedIndices(prev => new Set(prev).add(i).add((i + 1) % countRef.current))
     startTimer()
   }
 
@@ -84,7 +92,7 @@ export default function HeroSection({ settings = {}, dict = {} }) {
       <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(28,25,23,0.28) 0%, rgba(28,25,23,0) 30%, rgba(28,25,23,0.05) 55%, rgba(28,25,23,0.82) 100%)' }} />
 
       {/* Slide dots */}
-      <div style={{ position: 'absolute', bottom: 'clamp(16px,3vw,28px)', left: 0, right: 0, display: 'flex', justifyContent: 'center', gap: 8, zIndex: 2 }}>
+      {SLIDES.length > 1 && <div style={{ position: 'absolute', bottom: 'clamp(16px,3vw,28px)', left: 0, right: 0, display: 'flex', justifyContent: 'center', gap: 8, zIndex: 2 }}>
         {SLIDES.map((_, i) => (
           <span
             key={i}
@@ -99,7 +107,7 @@ export default function HeroSection({ settings = {}, dict = {} }) {
             }}
           />
         ))}
-      </div>
+      </div>}
 
       {/* Content */}
       <div style={{ position: 'relative', width: '100%', maxWidth: 1200, margin: '0 auto', padding: 'clamp(96px,16vw,180px) clamp(18px,4vw,40px) clamp(80px,10vw,140px)' }}>

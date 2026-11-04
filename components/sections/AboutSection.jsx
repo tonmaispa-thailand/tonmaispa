@@ -2,7 +2,10 @@ import Image from 'next/image'
 import TrackedLink from '@/components/ui/TrackedLink'
 import { t } from '@/lib/i18n/t'
 
-export default function AboutSection({ dict = {} }) {
+const OBJECT_POSITION = { left: 'left center', center: 'center', right: 'right center' }
+
+// `image` = owner-picked photo from Dashboard → Gallery ({src, alt, align}); null → built-in garden photo.
+export default function AboutSection({ dict = {}, image = null }) {
   return (
     <section id="about" style={{ padding: 'clamp(64px,10vw,128px) clamp(18px,4vw,40px)', background: '#FAF6F0' }}>
       <div data-reveal style={{ opacity: 0, transform: 'translateY(28px)', transition: 'opacity .9s cubic-bezier(.16,1,.3,1), transform .9s cubic-bezier(.16,1,.3,1)', maxWidth: 1200, margin: '0 auto', display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(300px,1fr))', gap: 'clamp(32px,5vw,72px)', alignItems: 'center' }}>
@@ -10,11 +13,11 @@ export default function AboutSection({ dict = {} }) {
         <div style={{ position: 'relative' }}>
           <div style={{ position: 'relative', height: 'clamp(360px,46vw,560px)', borderRadius: 8, boxShadow: '0 20px 48px rgba(28,25,23,0.14)', overflow: 'hidden' }}>
             <Image
-              src="/assets/garden.jpg"
-              alt="Guest relaxing on a rattan daybed in the tropical garden at Ton Mai Spa, Rawai Phuket"
+              src={image?.src ?? '/assets/garden.jpg'}
+              alt={image?.alt ?? 'Guest relaxing on a rattan daybed in the tropical garden at Ton Mai Spa, Rawai Phuket'}
               fill
               sizes="(max-width: 768px) 100vw, 50vw"
-              style={{ objectFit: 'cover' }}
+              style={{ objectFit: 'cover', objectPosition: OBJECT_POSITION[image?.align] ?? 'center' }}
             />
           </div>
           <div style={{ position: 'absolute', bottom: -22, right: -12, background: '#fff', padding: '18px 24px', borderRadius: 4, boxShadow: '0 8px 24px rgba(28,25,23,0.12)', maxWidth: 200 }}>
